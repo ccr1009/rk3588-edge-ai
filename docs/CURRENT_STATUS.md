@@ -65,6 +65,24 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
   - 自检:`bash /root/check_board.sh`
   - TF 卡已挂 `/mnt/tf`(开机自动挂载)
 
+- **ESP32-S3 SG90 云台执行器(2026-11-03 首次跑通)**:
+  - 工程:`edgevision-rk3588/esp32_gimbal/`(ESP-IDF v6.0.1,非 Arduino),板上固件 `esp32_gimbal.bin` 210,032 B
+  - **实测**:`P 45 0` → 回读 `pw_avg=2000us per_avg=20000us`(理论 2000us,逐位对得上);
+    连续 ±35° 摆动 18 秒 24 条命令全部 `OK`;舵机上电即自锁
+  - **接线**(已验证可用):
+    ```
+    舵机 红 → USB转TTL 5V      （★不能接板子 5Vin，那是输入脚）
+    舵机 黑 → ESP32 GND + TTL GND（三者共地）
+    舵机 橙 → ESP32 GPIO14
+    ESP32 `USB` 口 → 电脑（板子自己供电 + 通信）
+    ```
+  - **工具**:`host/esp32_find.py`(按 VID/PID 自动找 COM 口，不用猜)、`host/sweep.py`、`host/scan_pins.py`、
+    `host/gimbal_control.py`(纯函数)、`host/gimbal_tracker.py`(闭环)、`host/test_loopback.py`(18 项)、
+    `host/fake_gateway.py` + `host/e2e_check.py`(端到端)
+  - **固件诊断命令**(排查用):`D`(三角波演示) `R`(回环自测读脉宽) `V`(引脚负载探测)
+    `N`/`A`(300ms 方波翻转) `W`(同一信号驱动多个相邻脚)
+  - ⚠️ **仍未做**:接 RK3588 闭环(需改用 `COM` 口走 CH343)、双舵机齐动(单舵机方案已验证)
+
 ## 进度总览
 
 ### 学习线第一阶段(第 1~4 周):【全部大满贯通关！】
