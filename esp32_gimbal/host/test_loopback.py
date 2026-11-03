@@ -21,7 +21,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 from gimbal_control import (BBOX_FMT, BBOX_SIZE, COCO80, FRAME_SIZE,
                             HEADER_FMT, HEADER_SIZE, build_frame,
-                            compute_control, parse_frame, pick_target)
+                            compute_control, compute_control_absolute,
+                            parse_frame, pick_target)
 
 # 与 gimbal_tracker.py 默认参数一致
 KP_PAN, KP_TILT = 0.45, 0.40
@@ -30,10 +31,12 @@ PAN_R, TILT_R = 90.0, 45.0
 DEADZONE, MAX_STEP = 0.05, 6.0
 
 FAIL = 0
+TOTAL = 0
 
 
 def check(cond, msg):
-    global FAIL
+    global FAIL, TOTAL
+    TOTAL += 1
     if cond:
         print("    ✅ %s" % msg)
     else:
@@ -183,9 +186,73 @@ for _ in range(200):
 check(pan < 0 and abs(pan - pan_world) <= deadzone_deg + 1e-6,
       "负方向目标 %.0f° 也能收敛（pan=%.2f°）" % (pan_world, pan))
 
+# ---------- 6. 绝对映射控制律（摄像头固定不动）----------
+print("\n[6] 绝对映射控制律（摄像头固定不动）")
+# 前提：摄像头不跟着云台转 → "目标在画面里的位置"和"云台该指哪"是一次性映射，
+# 不是累加。用增量式会一路累加到限位（实测 pan 从 2.8 累加到 90 顶死）。
+
+GFOV_PAN, GFOV_TILT = 120.0, 90.0     # 云台覆盖视野（= 舵机行程 2×90 / 2×45）
+
+# 6.1 目标在正中间 → 云台指向 0°，进死区
+np_, nt_, dz, _, _ = compute_control_absolute(
+    0.5, 0.5, 0.0, 0.0, PAN_R, TILT_R, GFOV_PAN, GFOV_TILT,
+    FOV_PAN, FOV_TILT, deadzone=DEADZONE, max_step=MAX_STEP)
+check(dz and np_ == 0.0 and nt_ == 0.0,
+      "目标居中 → 死区内、角度不变 (pan=%.1f tilt=%.1f)" % (np_, nt_))
+
+# 6.2 目标在画面右侧 cx=0.8 → dx=+0.3 → 0.3×60°=18°，一次指到位
+np_, _, _, _, _ = compute_control_absolute(
+    0.8, 0.5, 0.0, 0.0, PAN_R, TILT_R, GFOV_PAN, GFOV_TILT,
+    FOV_PAN, FOV_TILT, deadzone=DEADZONE, max_step=100.0)
+expect = 0.3 * FOV_PAN
+check(abs(np_ - expect) < 0.01,
+      "画面右侧目标 → 云台指向 %.1f°（期望 %.1f°）" % (np_, expect))
+
+# 6.3 ★ 关键：偏差恒定不变时云台**不会**继续累加（增量式的病）
+pan_abs = 0.0
+trace = []
+for _ in range(50):
+    pan_abs, _, _, _, _ = compute_control_absolute(
+        0.8, 0.5, pan_abs, 0.0, PAN_R, TILT_R, GFOV_PAN, GFOV_TILT,
+        FOV_PAN, FOV_TILT, deadzone=DEADZONE, max_step=MAX_STEP)
+    trace.append(pan_abs)
+check(abs(trace[-1] - expect) < 0.01,
+      "同一偏差持续 50 帧稳定停在 %.1f°（不累加到限位）" % trace[-1])
+
+# 对照：增量式同样输入会顶到限位 —— 证明两种模式前提不同，不能混用
+pan_rel = 0.0
+for _ in range(50):
+    pan_rel, _, _, _, _ = compute_control(
+        0.8, 0.5, pan_rel, 0.0,
+        KP_PAN, KP_TILT, FOV_PAN, FOV_TILT, PAN_R, TILT_R, DEADZONE, MAX_STEP)
+check(pan_rel >= PAN_R - 1e-6,
+      "对照组：增量式同样输入会累加到限位 %.1f°（模式选错就顶死）" % pan_rel)
+
+# 6.4 目标在画面下方 → 云台低头（tilt < 0）
+np_, nt_, _, _, _ = compute_control_absolute(
+    0.5, 0.8, 0.0, 0.0, PAN_R, TILT_R, GFOV_PAN, GFOV_TILT,
+    FOV_PAN, FOV_TILT, deadzone=DEADZONE, max_step=MAX_STEP)
+check(nt_ < 0, "画面下方目标 → 云台低头 (tilt=%.1f°)" % nt_)
+
+# 6.5 相机自身朝向参与换算（要迭代到收敛 —— 单步会被 max_step 限速夹住）
+pan_c = 0.0
+for _ in range(30):
+    pan_c, _, _, _, _ = compute_control_absolute(
+        0.5, 0.5, pan_c, 0.0, PAN_R, TILT_R, GFOV_PAN, GFOV_TILT,
+        FOV_PAN, FOV_TILT, camera_pan=30.0, deadzone=DEADZONE, max_step=MAX_STEP)
+check(abs(pan_c - 30.0) < 0.01,
+      "相机朝向 +30° 时居中目标 → 云台迭代到 %.1f°（期望 30.0°）" % pan_c)
+
+# 6.6 超行程请求被钳回舵机范围
+np_, _, _, _, _ = compute_control_absolute(
+    1.0, 0.5, 0.0, 0.0, PAN_R, TILT_R, GFOV_PAN, GFOV_TILT,
+    FOV_PAN, FOV_TILT, camera_pan=200.0, deadzone=DEADZONE, max_step=100.0)
+check(-PAN_R <= np_ <= PAN_R,
+      "超行程请求被钳到 ±%.0f° 内（得到 %.1f°）" % (PAN_R, np_))
+
 print("\n" + "=" * 70)
 if FAIL == 0:
-    print("自测全部通过 ✅  (%d 项)" % 18)
+    print("自测全部通过 ✅  (%d 项)" % TOTAL)
 else:
     print("有 %d 项失败 ❌" % FAIL)
 print("=" * 70)

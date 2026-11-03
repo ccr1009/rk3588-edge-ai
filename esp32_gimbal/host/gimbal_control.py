@@ -155,3 +155,108 @@ def compute_control(target_cx, target_cy,
     new_pan = clamp(pan + d_pan, -pan_range, pan_range)
     new_tilt = clamp(tilt + d_tilt, -tilt_range, tilt_range)
     return new_pan, new_tilt, False, dx, dy
+
+
+def compute_control_absolute(target_cx, target_cy,
+                             pan, tilt,
+                             pan_range, tilt_range,
+                             gimbal_fov_pan, gimbal_fov_tilt,
+                             fov_pan, fov_tilt,
+                             camera_pan=0.0, camera_tilt=0.0,
+                             deadzone=0.05, max_step=6.0):
+    """**摄像头固定不动**时的控制律：把画面位置直接映射成云台绝对角度。
+
+    ── 什么时候用这个，而不是 compute_control ──────────────────────
+    两个控制律的前提完全不同，混用会有一路"看起来能动、其实永远收敛不了"：
+
+    | | compute_control（增量式） | compute_control_absolute（绝对式） |
+    |---|---|---|
+    | 前提 | **摄像头装在云台上**，跟着转 | **摄像头固定**，云台单独转 |
+    | 输入 | 目标相对画面的偏差 dx/dy | 目标在画面中的绝对位置 cx/cy |
+    | 输出 | 在当前角度上**累加**增量 | 直接算出**目标角度** |
+    | 装错摄像头会怎样 | dx 恒定不变 → 一路累加到限位卡死 | —— |
+
+    实测踩过的坑：摄像头固定时用增量式，`dx` 恒为 0.103，
+    pan 从 2.8 一路累加到 90° 顶死限位。不是控制律写错了，
+    是**它的前提不成立**。
+
+    ── 几何推导 ───────────────────────────────────────────────
+    摄像头固定、朝向某个基准方向；云台也是独立轴的。要让云台"指向"画面里的目标：
+
+      目标相对相机视轴的夹角  α_cam = (cx - 0.5) * fov_cam      ← 画面位置换算
+      目标在世界中的方位角    θ_world = camera_pan + α_cam       ← 加相机自身朝向
+      云台应该转到的角度      pan_new = θ_world - gimbal_ref     ← 减去云台零位
+
+    这里约定云台零位 = 相机光轴方向（也就是"云台正对相机视野中心"），
+    所以 camera_pan=camera_tilt=0 时简化为：
+      pan_new = (cx - 0.5) * fov_pan
+      tilt_new = -(cy - 0.5) * fov_tilt
+
+    **注意用的是云台的 FOV(fov_pan)，不是相机的 FOV。**
+    云台需要转过的角度由"目标在相机画面里的位置 × 相机视场角"决定，
+    再除以云台自己的行程范围。这里 fov_pan/fov_tilt 是**相机**视场角，
+    gimbal_fov_pan/gimbal_fov_tilt 用于把世界角度压缩到舵机行程内。
+
+    ── 参数说明 ───────────────────────────────────────────────
+    pan, tilt           : 当前云台角度（用于 max_step 限速，不让它一步跳很远）
+    pan_range/tilt_range: 舵机行程（±90 / ±45）
+    gimbal_fov_pan/tilt : 云台覆盖的视野角（通常等于相机 FOV，因为云台转到哪就看到哪）
+    fov_pan/fov_tilt    : 相机自身视场角，用来把归一化位置换成角度
+    camera_pan/tilt     : 相机相对世界基准的朝向偏移（默认 0 = 相机正对"前方"）
+    deadzone            : 角度死区内不动（用**归一化位置**判断，不是角度）
+    max_step            : 单帧最大角度变化
+
+    返回 (new_pan, new_tilt, in_deadzone, dx, dy)
+    """
+    dx = target_cx - 0.5
+    dy = target_cy - 0.5
+
+    if abs(dx) < deadzone:
+        dx = 0.0
+    if abs(dy) < deadzone:
+        dy = 0.0
+
+    # ★ 死区只作用于**画面偏差**，不能提前 return。
+    #
+    # 第一版这里写的是 `if dx == 0 and dy == 0: return pan, tilt, True`，
+    # 结果是：目标正好在画面正中、而相机朝向 30° 时，云台直接返回 0° ——
+    # camera_pan 被死区短路掉了。测试第 6.5 条抓到的就是这个。
+    #
+    # 语义上"死区"是"画面这一点点偏移不值得动"，它管的是 alpha（相对相机视轴），
+    # 不是"云台最终该指哪里"。camera_pan 是绝对基准，跟死区无关。
+
+    # 目标相对相机视轴的角度（相机 FOV 决定"画面边缘 = 多少度"）
+    alpha_pan  = dx * fov_pan
+    alpha_tilt = dy * fov_tilt
+
+    # 加上相机自身朝向 → 世界方位角；再减去云台零位 → 云台目标角
+    want_pan  = camera_pan + alpha_pan
+    want_tilt = camera_tilt - alpha_tilt      # 画面下方 = 世界低处；约定正 tilt = 抬头
+
+    # 把世界角度压进舵机行程：超出部分按比例缩放，避免要它转 120° 却只有 90° 可用
+    if gimbal_fov_pan > 0 and abs(want_pan) > gimbal_fov_pan / 2.0:
+        scale = (gimbal_fov_pan / 2.0) / abs(want_pan)
+        want_pan *= scale
+    if gimbal_fov_tilt > 0 and abs(want_tilt) > gimbal_fov_tilt / 2.0:
+        scale = (gimbal_fov_tilt / 2.0) / abs(want_tilt)
+        want_tilt *= scale
+
+    want_pan  = clamp(want_pan,  -pan_range,  pan_range)
+    want_tilt = clamp(want_tilt, -tilt_range, tilt_range)
+
+    # 死区判定放在算出目标角**之后**：画面偏差小、且云台已经指在目标角上，
+    # 才真的不需要动。少了这个判据会让云台在死区边缘一直微抖。
+    ang_dz_pan  = deadzone * fov_pan
+    ang_dz_tilt = deadzone * fov_tilt
+    if dx == 0.0 and dy == 0.0 \
+            and abs(want_pan - pan) <= ang_dz_pan \
+            and abs(want_tilt - tilt) <= ang_dz_tilt:
+        return pan, tilt, True, dx, dy
+
+    # 限速：从当前角度朝目标角走，单帧最多走 max_step
+    d_pan  = clamp(want_pan  - pan,  -max_step, max_step)
+    d_tilt = clamp(want_tilt - tilt, -max_step, max_step)
+
+    new_pan  = clamp(pan  + d_pan,  -pan_range,  pan_range)
+    new_tilt = clamp(tilt + d_tilt, -tilt_range, tilt_range)
+    return new_pan, new_tilt, False, dx, dy

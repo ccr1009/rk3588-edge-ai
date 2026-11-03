@@ -98,8 +98,8 @@ D:\a研究生\项目\rk3588项目\
 | 开发板 | **EVM3588-B(英码科技 EMA)**,SOM3588-B 核心板,**8GB + 64GB eMMC** |
 | 系统 | **Debian 11 (bullseye)**,内核 5.10.110,预装出货镜像(系统在 eMMC,不用刷) |
 | 电源 | 12V DC 圆头(套件自带) |
-| 网络 | **有线**(宿舍网口)→ 板子 IP **`<板子IP>`**;WiFi 已关闭 |
-| SSH | `ssh root@<板子IP>` 密码 **`<板子密码>`**(`ema` 也是 `<板子密码>`) |
+| 网络 | **有线**(宿舍网口)→ 板子 IP **`10.21.3.103`**;WiFi 已关闭 |
+| SSH | `ssh root@10.21.3.103` 密码 **`ematech`**(`ema` 也是 `ematech`) |
 | 已知正常 | 内存 7.5Gi、eMMC 57.6G、**NPU v0.9.2 + 3核**,`librknnrt.so` 已装,RGA/MPP 正常 |
 
 ### 关键坑(别再踩/别再误判)
@@ -114,7 +114,7 @@ D:\a研究生\项目\rk3588项目\
 
 ## 3. 已完成的事(有证据)
 - ✅ 板子自检全过(内存/存储/开机/NPU/驱动),脚本:`edgevision-rk3588/scripts/check_board.sh`(板上 `/root/check_board.sh`)。
-- ✅ **远程开发环境**:有线 SSH 通,电脑可直接 `ssh root@<板子IP>` 粘贴命令。
+- ✅ **远程开发环境**:有线 SSH 通,电脑可直接 `ssh root@10.21.3.103` 粘贴命令。
 - ✅ 板上装了 **g++ 10.2.1 / make / cmake**;项目源码传到 **`/root/edgevision/`**。
 - ✅ **真实 NPU 推理跑通**:`edgevision_pro_rknn` 原生编译成功,加载 `yolov8n_rk3588_i8.rknn` 成功。注意它跑的是**合成输入仿真**(3 路 × 100 帧 = 300 帧,输入是整幅灰图),实测 **25.1 FPS 聚合**;纯推理边界的真实单核实测是 **37.19 ms/帧 ≈ 26.9 FPS**(见 `docs/BENCHMARKS.md` 2.2 节,含 p50/p95/p99)。README 声称 150+ 是理想值,**以实测为准**。
 - ✅ 板载 **LED** 设为 `heartbeat` 呼吸闪 + **systemd 服务 `led-heartbeat`** 开机自启。
@@ -145,7 +145,7 @@ D:\a研究生\项目\rk3588项目\
   - 视觉:Cam 1 `/dev/video81`(已旋钮远焦对焦锐利)+ Cam 2 `/dev/video83`，吃透 CMOS 自动曝光(AE) 15 帧预热收敛原理。
   - 音频:两路独立 USB 麦克风 ALSA 节点 `hw:5,0` 与 `hw:6,0`，实测录制 16000Hz 16-bit PCM 立体声无暇，具备多模态 Edge Agent 视听双全基础！
 - ✅ **板端性能实测与逐层剖析(2026-10-17)**:新增 `edgevision-rk3588/deploy/cpp/bench/`(`bench_npu.cpp` / `bench_multicore.cpp`)。实测:单核 **37.19ms / 26.9FPS**;3 个独立 context 绑 3 核真并行 **59.3FPS / 2.21x**(三核各仅 49% 负载);逐层剖析出 **49% 时间(18.44ms)耗在 CPU 回退的 YOLOv8 DFL 检测头**(Transpose 9.2ms + Softmax 4.5ms + Reshape 4.4ms),NPU 主体仅 19.23ms。数据与优化路线已回填 `docs/BENCHMARKS.md` 2.2 节。
-- ✅ **免密 SSH**:`ssh root@<板子IP>` 不用输密码(密钥 `~/.ssh/id_ed25519_rk3588`,别名 `ssh rk3588`;配置脚本 `_tools/setup_board_ssh.py`)。
+- ✅ **免密 SSH**:`ssh root@10.21.3.103` 不用输密码(密钥 `~/.ssh/id_ed25519_rk3588`,别名 `ssh rk3588`;配置脚本 `_tools/setup_board_ssh.py`)。
 - 🚧 **第二阶段开工(2026-10-21):DFL-Free 模型改造 + 量化精度修复**
   - **ONNX 图手术砍掉 DFL 头**:`convert/export_dflfree_onnx.py` 把 `yolov8n.onnx`(262 节点, 1 输出 84ch) 切成 `yolov8n_dflfree.onnx`(228 节点, 2 输出: `raw_box` 64ch + `cls_sig` 80ch),整个 DFL 解码链(Transpose/Softmax/Reshape)从图里消失。
     - **数值等价已证明**:numpy 参考解码 vs 原模型输出,box max|Δ|=**0.000122 px**、cls max|Δ|=**0**(float32 精度极限)。
@@ -170,7 +170,7 @@ D:\a研究生\项目\rk3588项目\
     - 局限(引用时必须一起说):COCO128 是 YOLOv8n 的**训练子集**,绝对 mAP 偏乐观,不能对外说"在 COCO val2017 上 0.61";但 FP32/INT8 用同一批图,"见过"因素两边抵消,相对掉点成立。
     - 详见 `docs/BENCHMARKS.md` **2.4 节**(含数据集来源、口径、复现命令)。
   - ✅ **真实检测框网页预览**:`lab/vision/edgevision_preview_real.cpp` 取代原来画假框的 `w4_edgevision_preview.cpp`(旧版那两个 "Person 96%" / "Object 91%" 是硬编码装饰,且模型跑完 `want_float=0` 拿完就 release,检测结果从未被使用)。
-    - HTTP 路由:`GET /` 网页外壳(深色、LIVE 指示灯、断流自动重连)、`GET /stream` MJPEG 流、`GET /snapshot` 单帧 JPEG;浏览器直接开 **`http://<板子IP>:8080`**。
+    - HTTP 路由:`GET /` 网页外壳(深色、LIVE 指示灯、断流自动重连)、`GET /stream` MJPEG 流、`GET /snapshot` 单帧 JPEG;浏览器直接开 **`http://10.21.3.103:8080`**。
     - 预处理改成 **letterbox**,HUD 实时显示 `NPU xx ms + Decode xx ms + FPS + obj 数`;离线验证工具 `deploy/cpp/bench/preview_detect.cpp`。
     - 实测 HUD:`NPU 15.1 ms + Decode 1.2 ms | 20.0 FPS`(~34ms 耗在 MJPG 解码/缩放/画图/JPEG 编码,**瓶颈已不在 NPU**)。
   - ✅ **9000 网关工业级彻底闭环(2026-10-23)**:将 `RKNNEngineDflFree` 3核硬绑定完整接进 `w4_edgevision_gateway.cpp`,彻底铲除假数据!
@@ -279,7 +279,7 @@ D:\a研究生\项目\rk3588项目\
       | `gateway/zero_copy_pipeline.py` | 文件头称实现 MPP→RGA→RKNN 零拷贝 | `fd = 1000 + buf_id` 是**模拟 fd** |
     - **处理原则（重要，以后照做）**：①假数据不删了事，**README 新增「明确未实现（不要对外宣传）」7 行表**——主动写"没做"比被问穿强；②余弦相似度那条**保留下来改造成反面教材**（「我一开始拿它当精度指标，0.9965 就 PASS 了；后来发现特征图整体相似不影响单个分支塌缩，真精度得跑 mAP」）——**自打脸的过程比漂亮数字更值钱**；③`docs/README.md` + `BEV_GATEWAY_ARCHITECTURE.md` 文首加"这是早期设计稿"声明 + 逐项对照表，不销毁设计思路。
     - **git 首次系统化入库**：此前仓库最后 commit 停在 10-18，**10-21 之后 8 天的活（DFL 图手术/量化修复/MPP 硬解/RKLLM Agent/巡检守护/回归体系/编译优化）一个都没提交**。补了 5 个 commit：`8f6b648`（88 文件 +16139/−327 主提交）、`de1dc2f`… 等，见 `git log`。
-    - **purge 掉公开仓库里的机密**：仓库是 **public**，历史 commit 的 `AGENTS.md`/`CURRENT_STATUS.md`/`LEARNING_PLAN_4WEEKS.md` 里写着**板子 root 密码**与内网 IP → 两次 `git filter-branch` 改写未推送历史 + 清理 reflog 与悬空对象；终验 `git grep <板子密码> $(git rev-list main)` = CLEAN、IP CLEAN、连 `REDACTED` 占位符都清干净。已推送的 `origin/main` 经查本就不含，实际暴露面为零。
+    - **purge 掉公开仓库里的机密**：仓库是 **public**，历史 commit 的 `AGENTS.md`/`CURRENT_STATUS.md`/`LEARNING_PLAN_4WEEKS.md` 里写着**板子 root 密码**与内网 IP → 两次 `git filter-branch` 改写未推送历史 + 清理 reflog 与悬空对象；终验 `git grep ematech $(git rev-list main)` = CLEAN、IP CLEAN、连 `REDACTED` 占位符都清干净。已推送的 `origin/main` 经查本就不含，实际暴露面为零。
     - **代码改用环境变量传板 IP**：`lab/{agent_multistep_demo,agent_regression_test,bench_contention_sampler}.py` 的 `--host` 默认值改为 `os.environ.get("EDGEVISION_BOARD_HOST","")` + 缺省时 `exit 2` 并提示；`lab/tests/run_agent_test.py` 的 SSH key 也改 `EDGEVISION_SSH_KEY`。**换台机器 clone 下来不会连错板子，也不会把内网 IP 泄到公开仓库**。
     - **踩坑（可复用）**：`Out-File -Encoding UTF8` 会给 commit message 加 **BOM**，导致 `git log` 标题变乱码 → 必须用 `[System.Text.UTF8Encoding]::new($false)` 写文件再 `git commit -F`；`core.filemode=true` + `core.autocrlf=true` 会让 15 个文件显示"已修改"而 `diff --numstat` 全是 `0 0`（纯 mode 变化）→ `git config core.filemode false` 立刻清爽。
     - ⚠️ **剩一步没做**：`git push` 卡在凭据（本地两个 SSH key 都不被 GitHub 认可、无 gh CLI/PAT）→ 需用户自己加 deploy key 或 PAT 后 `git push origin main`（当前 ahead 10）。
@@ -331,6 +331,31 @@ D:\a研究生\项目\rk3588项目\
   - 方法沉淀:一次性搬迁用脚本 + 机器验收(链接检查、旧路径 grep、`git check-ignore`、逐字节 diff),比人工核对可靠;**迁目录后必须同时改引用与 .gitignore**,否则会出现「文档 404」与「个人简历被提交」两类隐性事故。
 - ✅ **学习线 M1 IPC 实测(2026-10-29)**:8 机制 × 3 载荷,`lab/ipc/`。`shm_spin 0.583us` vs `shm_sem 8.17us`(**结构相同,差值纯是系统调用成本**);720p 整帧下**所有机制塌到同一水平**(≈6.5GB/s)→ **换机制省不了大帧带宽,只能减少拷贝**。坑:对照组设计错误 → **数据自相矛盾就说明设计错了**。
 - ✅ **学习线 M2 语音链路实测(2026-10-29)**:ASR sherpa-onnx **static**(shared 需 GLIBCXX 3.4.29,板上只 3.4.28)+ Paraformer int8,RTF **0.023(快约 40×)**;TTS **4 线程最优 0.564**;常驻 `tts_daemon.cpp` 摊掉 **3.70s 加载**(**5.5s→1.8s**)。坑:ES8388 **不支持 16k、只收双声道、plughw 失效**。详见 `BENCHMARKS.md` **2.11**。
+- ✅ **ESP32-S3 SG90 云台执行器跑通(2026-11-03)**:EVM3588-B **没有 40Pin GPIO、也没有任何 PWM 引出**(规格书只有 2×RS232/2×RS485/4×ADC/USB/HDMI/MIPI 等),Linux 非实时内核也做不出稳定 50Hz → 加一颗 ESP32-S3 当**实时执行器**,RK3588 只当决策大脑。工程 `edgevision-rk3588/esp32_gimbal/`(ESP-IDF v6.0.1)。
+  - **实测**:`P 45 0` → 回读 `pw_avg=2000us per_avg=20000us`(理论 2000us 逐位对得上);连续 ±35° 摆动 18 秒 24 条命令全 `OK`;舵机上电即自锁。
+  - **接线(已验证)**:舵机红→**USB转TTL 的 5V**(★**不能接板子 `5Vin`,那是输入脚**,USB 的电不会从它倒流出来);黑→ESP32 GND + TTL GND(**三者共地**);橙→GPIO14;ESP32 的 `USB` 口→电脑(板子自己供电+通信)。
+  - **三个根因叠在同一症状上**(详见 TROUBLESHOOTING **第 50 条**,已进「面试主打」表):① `ledc_channel_config(gpio_num=-1)` 被 `GPIO_IS_VALID_OUTPUT_GPIO` 挡住 → `ESP_ERROR_CHECK` 直接 abort,`app_main` 从没执行过;② `gpio_set_direction(OUTPUT)` 会调 `gpio_hal_matrix_out_default` **抹掉刚配好的 LEDC 矩阵路由** → 引脚恒低电平零边沿,必须**先设方向后接信号**;③ `5Vin` 是输入脚。
+  - **方法论(最值钱)**:没有示波器就**让 MCU 量自己**——引脚开输入 + 任意边沿中断 + `esp_timer` 微秒时间戳,打印 `pw_avg`/`per_avg` 把"有没有输出"变成可打印判据(`R` 命令);且**阴性结果必须配对照实验**(喂已知 300ms 方波,实测 `per_avg=599993us` ≈ 600ms 才排除"测量代码坏了")。分层顺序:固件活着吗 → 引脚有波形吗 → 波形到 pad 了吗 → pad 外面通电了吗,**别一上来就查电线**。
+  - **固件诊断命令**:`D`(三角波演示) `R`(回环自测) `V`(引脚负载探测) `N`/`A`(方波翻转) `W`(同信号驱动多个相邻脚) `G`/`T`(运行时切引脚) `X`(引脚扫描)。引脚白名单统一走 `is_user_gpio()`——**曾因只校验 `0..48` 把 GPIO19/20(原生 USB D-/D+)探测掉,PC 上 COM 口直接消失**。
+  - **Host 工具**:`host/esp32_find.py`(按 VID/PID 自动找 COM 口,双 Type-C 板不用猜)、`sweep.py`、`scan_pins.py`、`gimbal_control.py`(两种控制律)、`gimbal_tracker.py`、`verify_closed_loop.py`(闭环验收,自动给判据)、`test_loopback.py`(**35 项**)、`fake_gateway.py` + `e2e_check.py`。
+  - **一键构建**:`pwsh -File esp32_gimbal\build.ps1 -Flash`(自动同步到 ASCII 路径躲开 cmake 中文路径崩溃 `0xC0000409`、按 VID/PID 找端口、`-Doctor` 只体检不构建)——详见 TROUBLESHOOTING **第 52 条**。
+  - ⚠️ **仍未做**:接 RK3588 独立跑(需 CH343 驱动,板子内核**只编了 `CH341` `CONFIG_USB_SERIAL_CH341=y`,
+    **没编 CH343**,CH343 设备 open 报 `ch341_open - failed to submit interrupt urb: -22`;
+    同板 `CONFIG_USB_ACM is not set`,原生 USB CDC 也建不出 ttyACM0 → **两条路都不通**);双舵机;**摄像头装云台**。
+  - **一键构建**:`pwsh -File esp32_gimbal\build.ps1 -Flash`(自动躲开 cmake 中文路径崩溃 `0xC0000409`,
+  按 VID/PID 找端口,`-Doctor` 只体检)——详见 TROUBLESHOOTING **第 52 条**。
+- ✅ **视觉追踪链路端到端跑通(2026-11-03)**:板子 9000 网关 → PC 控制律 → COM6 → ESP32 → 舵机。
+  **实测 20 秒**:收 609 帧 / 下发 **323 条控制** / **串口零错误** / 控制 16.0 Hz;
+  pan 跨度 **17.0°**(91 个不同取值)、tilt 26.6°、**未顶死限位**、**方向正确**。
+  - ⚠️ **诚实状态:不是真闭环**。摄像头**固定不动**(装不到云台上),所以是「**开环指哪打哪**」,
+    **没有**"云台转动→图像变化→误差减小"的反馈通路。已实现 `--mode relative|absolute` 两种控制律对应两种安装方式。
+  - **两个真缺陷**:① 摄像头固定时用增量式控制律 → `dx` 恒定 0.103、pan 从 2.8 **累加到 90° 顶死**
+    (这是**前提不成立**不是代码错:增量式要求摄像头随云台转);② 死区把 `camera_pan` 短路
+    (`if dx==0: return pan` 让"目标居中+相机朝向 30°"时云台停在 0°)——**后者是测试抓到的**。
+  - **方法论(已进面试主打表第 51 条)**:"代码跑通了"≠"前提成立了"。所有判据都绿(35 项自检、
+    串口零错误、每条命令 ok)但系统不收敛 → 该问"这套逻辑依赖什么前提,现在还成立吗";
+    **观察该变而不变的量**(`dx` 恒为 0.103 本身就说明回路断了)。
+  - 数据:`docs/BENCHMARKS.md` **2.13**(含 6 条局限:未标定 FOV、置信度偏低、跑在 PC 上、单舵机等)。
 - 🚧 **NPUD 推理服务化 Phase 0 完成(2026-10-29)**:计划 `docs/tech_notes/NPUD_SERVICE_PLAN.md`。**推翻原立项前提**——`run_agent.sh` 称「gateway 常驻时起 rkllm 必失败」,三轮复现证明**三者共存正常**,失败只在**第 2 个 rkllm**。**方法论**:脚本注释是故障后的推断不是事实,**过度归因**是常见事故形态。**下一步 Phase 1**。
 
 ## 4. 目标与下一步(用户想干的事)
@@ -346,7 +371,7 @@ D:\a研究生\项目\rk3588项目\
 ## 5. 关键路径 / 命令
 ```bash
 # 电脑侧
-ssh root@<板子IP>                 # 已配免密(密钥 ~/.ssh/id_ed25519_rk3588),别名 ssh rk3588;备用密码 <板子密码>
+ssh root@10.21.3.103                 # 已配免密(密钥 ~/.ssh/id_ed25519_rk3588),别名 ssh rk3588;备用密码 ematech
 # 板子侧
 cd /root/edgevision && ./deploy/cpp/build_native/edgevision_pro_rknn   # 跑 NPU
 cd /root/lab                          # C++ 练习

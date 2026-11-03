@@ -32,6 +32,7 @@ except ImportError:
     sys.exit(2)
 
 from gimbal_control import (COCO80, FRAME_SIZE, clamp, compute_control,
+                            compute_control_absolute,
                             parse_frame, pick_target)
 
 
@@ -163,14 +164,34 @@ def main():
                     help="Tilt 方向反了加这个（目标在上方但云台往下转时用）")
     ap.add_argument("--rate", type=float, default=20.0, help="控制频率上限 Hz")
     ap.add_argument("--dry-run", action="store_true", help="只算角度，不发给舵机")
+
+    # ---------- 控制模式（这个选错会"能动但永远收敛不了"）----------
+    ap.add_argument("--mode", choices=["relative", "absolute"], default="relative",
+                    help="relative=摄像头装在云台上（增量式，默认）；"
+                         "absolute=摄像头固定不动（绝对映射）")
+    ap.add_argument("--camera-pan", type=float, default=0.0,
+                    help="[absolute] 相机相对世界基准的水平朝向（度），0=正对前方")
+    ap.add_argument("--camera-tilt", type=float, default=0.0,
+                    help="[absolute] 相机相对世界基准的俯仰朝向（度）")
+    ap.add_argument("--gimbal-fov-pan", type=float, default=120.0,
+                    help="[absolute] 云台能覆盖的水平视野角（度），通常 = 舵机行程 2×90")
+    ap.add_argument("--gimbal-fov-tilt", type=float, default=90.0,
+                    help="[absolute] 云台能覆盖的垂直视野角（度），通常 = 舵机行程 2×45")
     args = ap.parse_args()
 
     print("=" * 68)
     print("视觉追踪云台闭环  source=%s:%d  sink=%s%s"
           % (args.host, args.tcp_port, args.port, "  [DRY-RUN]" if args.dry_run else ""))
-    print("类别=%s  kp=(%.2f, %.2f)  FOV=(%.0f°, %.0f°)  deadzone=%.3f  max_step=%.1f°/帧"
-          % (args.want_class or "任意", args.kp_pan, args.kp_tilt,
-             args.fov_pan, args.fov_tilt, args.deadzone, args.max_step))
+    if args.mode == "absolute":
+        print("模式=绝对映射（摄像头固定）  相机FOV=(%.0f°, %.0f°)  "
+              "云台覆盖=(%.0f°, %.0f°)"
+              % (args.fov_pan, args.fov_tilt,
+                 args.gimbal_fov_pan, args.gimbal_fov_tilt))
+    else:
+        print("模式=增量式（摄像头装在云台上）  kp=(%.2f, %.2f)  FOV=(%.0f°, %.0f°)"
+              % (args.kp_pan, args.kp_tilt, args.fov_pan, args.fov_tilt))
+    print("类别=%s  deadzone=%.3f  max_step=%.1f°/帧"
+          % (args.want_class or "任意", args.deadzone, args.max_step))
     print("=" * 68)
 
     gimbal = None
@@ -241,12 +262,22 @@ def main():
 
             last_seen = time.time()
 
-            new_pan, new_tilt, in_dz, dx, dy = compute_control(
-                target["cx"], target["cy"], pan, tilt,
-                args.kp_pan, args.kp_tilt, args.fov_pan, args.fov_tilt,
-                args.pan_range, args.tilt_range,
-                args.deadzone, args.max_step, args.invert_tilt)
-
+            if args.mode == "absolute":
+                # 摄像头固定不动 → 画面位置直接映射成云台绝对角度
+                new_pan, new_tilt, in_dz, dx, dy = compute_control_absolute(
+                    target["cx"], target["cy"], pan, tilt,
+                    args.pan_range, args.tilt_range,
+                    args.gimbal_fov_pan, args.gimbal_fov_tilt,
+                    args.fov_pan, args.fov_tilt,
+                    camera_pan=args.camera_pan, camera_tilt=args.camera_tilt,
+                    deadzone=args.deadzone, max_step=args.max_step)
+            else:
+                # 摄像头装在云台上 → 增量式
+                new_pan, new_tilt, in_dz, dx, dy = compute_control(
+                    target["cx"], target["cy"], pan, tilt,
+                    args.kp_pan, args.kp_tilt, args.fov_pan, args.fov_tilt,
+                    args.pan_range, args.tilt_range,
+                    args.deadzone, args.max_step, args.invert_tilt)
             if in_dz:
                 if time.time() - last_print > 0.5:
                     print("\r[追踪] 锁定 frame=%d 目标居中 pan=%.1f tilt=%.1f          "

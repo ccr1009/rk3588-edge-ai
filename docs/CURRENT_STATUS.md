@@ -66,7 +66,7 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
   - TF 卡已挂 `/mnt/tf`(开机自动挂载)
 
 - **ESP32-S3 SG90 云台执行器(2026-11-03 首次跑通)**:
-  - 工程:`edgevision-rk3588/esp32_gimbal/`(ESP-IDF v6.0.1,非 Arduino),板上固件 `esp32_gimbal.bin` 210,032 B
+  - 工程:`edgevision-rk3588/esp32_gimbal/`(ESP-IDF v6.0.1,非 Arduino),板上固件 `esp32_gimbal.bin` 211,568 B
   - **实测**:`P 45 0` → 回读 `pw_avg=2000us per_avg=20000us`(理论 2000us,逐位对得上);
     连续 ±35° 摆动 18 秒 24 条命令全部 `OK`;舵机上电即自锁
   - **接线**(已验证可用):
@@ -76,12 +76,26 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
     舵机 橙 → ESP32 GPIO14
     ESP32 `USB` 口 → 电脑（板子自己供电 + 通信）
     ```
-  - **工具**:`host/esp32_find.py`(按 VID/PID 自动找 COM 口，不用猜)、`host/sweep.py`、`host/scan_pins.py`、
-    `host/gimbal_control.py`(纯函数)、`host/gimbal_tracker.py`(闭环)、`host/test_loopback.py`(18 项)、
-    `host/fake_gateway.py` + `host/e2e_check.py`(端到端)
+  - **一键构建**:`pwsh -File esp32_gimbal\build.ps1 -Flash`
+    (自动同步到 ASCII 路径规避 cmake 中文路径崩溃 → 构建 → 回拷产物 → 按 VID/PID 找端口烧写;
+    `-Doctor` 只体检环境)
+  - **工具**:`host/esp32_find.py`(按 VID/PID 自动找 COM 口)、`sweep.py`、`scan_pins.py`、
+    `gimbal_control.py`(纯函数)、`gimbal_tracker.py`(两种控制律)、`verify_closed_loop.py`(闭环验收)、
+    `test_loopback.py`(**35 项**)、`fake_gateway.py` + `e2e_check.py`
   - **固件诊断命令**(排查用):`D`(三角波演示) `R`(回环自测读脉宽) `V`(引脚负载探测)
     `N`/`A`(300ms 方波翻转) `W`(同一信号驱动多个相邻脚)
-  - ⚠️ **仍未做**:接 RK3588 闭环(需改用 `COM` 口走 CH343)、双舵机齐动(单舵机方案已验证)
+
+- **视觉追踪链路端到端跑通(2026-11-03)**:
+  - 链路:板子 9000 网关 → PC 控制律 → COM6 → ESP32 → 舵机
+  - **实测 20 秒**:收 609 帧 / 下发 323 条控制 / **串口零错误** / 控制 16.0 Hz;
+    pan 跨度 **17.0°**(91 个不同取值)、tilt 跨度 26.6°、**未顶死限位**、**方向正确**
+  - ⚠️ **不是真闭环**:摄像头**固定不动**(装不到云台上),所以是「开环指哪打哪」,
+    **没有**"云台转动→误差减小"的反馈通路。已加 `--mode relative|absolute` 两种控制律应对两种安装方式
+  - **两个真缺陷**:① 摄像头固定时用增量式 → `dx` 恒定、pan 累加到 90° 顶死(前提不成立,非代码错);
+    ② 死区把 `camera_pan` 短路(测试抓到,修后转绿)
+  - 详见 `docs/BENCHMARKS.md` **2.13**、`docs/TROUBLESHOOTING.md` **第 51 条**
+  - ⚠️ **仍未做**:接 RK3588 独立跑(需 CH343 驱动,板子内核**只编了 CH341**,
+    CH343 open 报 `failed to submit interrupt urb: -22`);双舵机;摄像头装云台
 
 ## 进度总览
 
