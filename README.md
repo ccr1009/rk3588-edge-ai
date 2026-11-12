@@ -1,17 +1,16 @@
-# stereo3d —— 双目 3D 感知 / 人脸 3D 定位
+# stereo3d-rk3588 —— 双目 3D 感知 / 人脸 3D 定位
 
 > RK3588 端侧**双目立体视觉**项目：双 USB 摄像头 → 立体矫正 → SGBM 稠密视差 → 深度图 → 人脸框内深度 → 人脸 3D 坐标。
 > 原生 C++（无第三方库，只用 OpenCV），板端原生编译，浏览器 MJPEG 实时预览。
 >
-> **本目录是唯一代码源。** 早期在根目录另存过一份 `stereo3d-rk3588/` 开发现场快照，
-> 已降级为素材归档（`<工作区>/_workbench/stereo3d-rk3588-archive/`），不再参与开发。
+> **独立仓库**：只依赖 OpenCV，不依赖任何其他项目。`git clone` 下来即可编译。
 
 ## 为什么做这个（校招叙事）
 
-已有项目 `edgevision-rk3588` 是**单目 + NPU 目标检测**，只能给 2D 框。
+已有项目 [`rk3588-edge-ai`](https://github.com/ccr1009/rk3588-edge-ai) 是**单目 + NPU 目标检测**，只能给 2D 框。
 本项目补上**深度/三维**这一环，形成完整链条：
 
-| 能力 | edgevision-rk3588（单目） | stereo3d（双目，本项目） |
+| 能力 | 单目（RK3588 主项目） | stereo3d（双目，本项目） |
 |---|---|---|
 | 目标位置 | 2D 框 (u,v,w,h) | **3D 坐标 (X,Y,Z) 米** |
 | 测距原理 | 无（或框大小估算，不可靠） | **三角测量**：`Z = fx·B / d` |
@@ -36,7 +35,7 @@
 ## 目录结构
 
 ```
-stereo3d/
+stereo3d-rk3588/                    ← 仓库根
 ├── CMakeLists.txt
 ├── include/
 │   ├── stereo_types.h      # 全项目共享数据结构（契约）
@@ -59,21 +58,41 @@ stereo3d/
 
 ## 快速开始
 
-```bash
-# 0) 板端编译
-ssh root@<board-ip>
-cd /root/stereo3d
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j4
+### 前提
 
-# 1) 没标定也能跑（理想平行双目兜底，只能看相对深度）
+- RK3588 开发板（本项目在 EVM3588-B 上验证）
+- Debian 11 + OpenCV 4.5.1（含 calib3d / objdetect）+ g++ 10.2.1
+- 两个 USB 摄像头（默认 `/dev/video81` 左目 / `/dev/video83` 右目）
+
+### 编译（**在板子上原生编译**，别交叉编译）
+
+板上是 glibc 2.31，Ubuntu 22.04 交叉编译出来的二进制会因 glibc 2.35 起不来。
+
+```bash
+# 板子上
+git clone https://github.com/ccr1009/stereo3d-rk3588.git
+cd stereo3d-rk3588
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j4
+```
+
+### 跑
+
+```bash
+# ① 没标定也能跑（理想平行双目兜底，只能看相对深度）
 ./build/stereo3d_demo --no-calib
 
-# 2) 标定后跑（推荐）
+# ② 标定后跑（推荐，绝对距离才可信）
 ./build/stereo3d_demo --calib calib/stereo_calib.yml
 
-# 3) 浏览器打开
-#    http://<board-ip>:8081
+# ③ 浏览器打开 http://<board-ip>:8081
 ```
+
+> ⚠️ **未标定时绝对距离不可信**：程序会用理想平行双目假设（fx=1108 / B=60mm）。
+> 标定工具链见 `tools/calib/`，自测通过（单目 RMS 0.043px / 双目 RMS 0.044px / 基线误差 0.003mm）。
+>
+> ⚠️ **摄像头可能被其他服务占用**：如果 9000/8080/8090 服务在跑，先 `systemctl stop` 它们。
+> 用 `fuser /dev/video81` 确认空闲。
 
 ## 核心公式（面试要能推）
 
