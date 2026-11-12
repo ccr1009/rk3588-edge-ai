@@ -233,6 +233,47 @@ static void send_all(int fd, const char* data, size_t len) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// MJPEG 断帧保护（2026-11-11 加，和 lab/vision/edgevision_gateway.cpp 同一套）
+//
+// `cap >> bgr` 内部由 OpenCV 的 V4L2 后端调 cv::imdecode 解 MJPEG。
+// 驱动偶发交出 bytesused==0 的坏包时，OpenCV 4.5.1 不查长度就解 → 抛
+// cv::Exception（loadsave.cpp:768 `!buf.empty()` in `imdecode_`）→
+// 因为没有 try/catch，直接 std::terminate → Aborted。
+// 注意：`if (bgr.empty())` 挡不住，异常在赋值语句内部就抛了。
+//
+// 断帧必须计数（AGENTS.md 第①条）：悄悄 catch = 谎报帧率。
+// ---------------------------------------------------------------------------
+static uint64_t g_cam_dropped     = 0;
+static uint64_t g_cam_reopens     = 0;
+static int      g_cam_consec_fail = 0;
+static const int CAM_REOPEN_AFTER = 8;
+
+// 读一帧。返回 false = 坏帧（已计数），调用方 continue。
+// 先 release() 是因为 read() 失败时不会改 Mat，不清空会让上一帧冒充新帧。
+static bool cam_read(cv::VideoCapture& cap, cv::Mat& dst) {
+    dst.release();
+    bool ok = false;
+    try {
+        ok = cap.read(dst);
+    } catch (const cv::Exception& e) {
+        g_cam_dropped++;
+        g_cam_consec_fail++;
+        if (g_cam_dropped <= 5 || (g_cam_dropped % 60) == 0) {
+            std::cerr << "[!] 断帧#" << g_cam_dropped << "（重开 "
+                      << g_cam_reopens << "）: " << e.what() << "\n";
+        }
+        return false;
+    }
+    if (!ok || dst.empty()) {
+        g_cam_dropped++;
+        g_cam_consec_fail++;
+        return false;
+    }
+    g_cam_consec_fail = 0;
+    return true;
+}
+
 // 网页外壳：/ 返回页面，页面里用 <img src="/stream"> 拉 MJPEG 流
 static const char* kIndexHtml = R"HTML(<!doctype html>
 <html lang="zh-CN"><head>
@@ -414,7 +455,10 @@ int main(int argc, char* argv[]) {
         cap.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
         cap.set(cv::CAP_PROP_FPS, 30);
         cv::Mat warm;
-        for (int i = 0; i < 15; ++i) cap >> warm;   // AE 预热收敛
+        // ★ 预热这 15 帧同样在解 MJPEG，同样会抛 —— 原来裸 `cap >> warm` 是"启动即崩"的入口
+        for (int i = 0; i < 15; ++i) {
+            if (!cam_read(cap, warm)) usleep(2000);   // AE 预热收敛
+        }
         printf("[+] 已打开摄像头: %s @ 1280x720 30FPS\n", dev_path);
     }
 
@@ -429,17 +473,33 @@ int main(int argc, char* argv[]) {
 
     while (g_running) {
         auto tA = std::chrono::steady_clock::now();
-        cap >> bgr;
-        auto tB = std::chrono::steady_clock::now();
-        if (bgr.empty()) {
+        if (!cam_read(cap, bgr)) {
             if (is_video_file) {
                 cap.set(cv::CAP_PROP_POS_FRAMES, 0);
                 continue;
+            }
+            // 连续坏帧 → 管道已死，重开（UVC 单进程独占，release 后再 open）
+            if (g_cam_consec_fail >= CAM_REOPEN_AFTER) {
+                g_cam_reopens++;
+                std::cerr << "[!] 连续 " << g_cam_consec_fail << " 帧读不出，第 "
+                          << g_cam_reopens << " 次重开 " << dev_path << "\n";
+                g_cam_consec_fail = 0;
+                cap.release();
+                cap.open(dev_path, cv::CAP_V4L2);
+                if (cap.isOpened()) {
+                    cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+                    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
+                    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+                    cap.set(cv::CAP_PROP_FPS, 30);
+                } else {
+                    usleep(1000000);
+                }
             } else {
                 usleep(5000);
-                continue;
             }
+            continue;
         }
+        auto tB = std::chrono::steady_clock::now();
         frame_id++;
 
         float scale = 1.f;

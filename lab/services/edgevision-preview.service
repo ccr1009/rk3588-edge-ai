@@ -1,0 +1,49 @@
+[Unit]
+Description=EdgeVision 8080 Preview (MJPEG + 3D BBox + BEV radar)
+Documentation=file:///root/lab/w4_edgevision_preview_real.cpp
+After=network.target
+
+# ⚠️ 与 edgevision.service（9000 网关）**互斥**：两者抢同一个摄像头设备。
+# 为什么不像 voice-gateway 那样写 Conflicts=：
+#   看板/网关可以"人在旁边手动协调"，而这里是用户明确要求"打开预览"，
+#   硬 Conflicts 会在启动时静默 stop 掉 7×24 网关，代价太大且用户不知情。
+#   改为：由 Agent 的 control_service 在 start 前主动检查并如实告知用户
+#   （见 rkllm_embodied_agent.cpp 的 tool_control_service preview 分支）。
+# 需要同时看时，把 CAM_DEV 改成 /dev/video83，另一路用 video81。
+
+[Service]
+Type=simple
+WorkingDirectory=/root/lab
+EnvironmentFile=-/etc/default/edgevision-preview
+
+# 设备与置信度走 EnvironmentFile，不要在 unit 里写死：
+#   cam1(/dev/video81) 2026-11-11 起硬件损坏（抓帧恒 0 字节），当前用 cam2
+#   改 /etc/default/edgevision-preview 后 restart 即可，不用改 unit
+ExecStart=/root/lab/w4_edgevision_preview_real $PREVIEW_CAM $PREVIEW_CONF
+
+# 重要：preview 的 SIGTERM 处理有死锁风险（主线程 pthread_join 等 HTTP 线程，
+# 而 HTTP 线程阻塞在 accept()）→ 默认 SIGTERM 可能停不掉，进程会僵在那并继续占摄像头。
+# 用 SIGKILL 保证一定能停干净。代价是拿不到它的优雅清理，但它没有需要落盘的状态。
+KillSignal=SIGKILL
+KillMode=control-group
+TimeoutStopSec=10
+
+# ★ 必须配 SuccessExitStatus：被 SIGKILL 杀掉的进程退出状态是 SIGKILL，
+#   systemd 默认把它判成失败，`systemctl stop` 之后状态会停在 **failed** 而不是 inactive。
+#   后果：Agent 的 control_service 判据是 `is-active != active` 才算停止成功，
+#   failed 恰好满足，但用户看到 `systemctl status` 显示 failed 会以为出了问题；
+#   更麻烦的是 Restart=on-failure 会把"正常 stop"后的 failed 也当成崩溃去重拉。
+#   实测（2026-11-12）：加这一行之前 stop 后 state=failed，加之后是 inactive。
+SuccessExitStatus=SIGKILL
+
+Restart=on-failure
+RestartSec=5
+# 相机坏了会一直失败重启 → 限制次数，避免把 journal 刷爆
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

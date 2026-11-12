@@ -1,0 +1,47 @@
+[Unit]
+Description=EdgeVision Dashboard CAM (8090, 摄像头实时 + 3D BBox + BEV radar)
+Documentation=file:///root/edgevision/deploy/cpp/src/edgevision_dashboard_main.cpp
+After=network.target
+
+# ⚠️ 冲突关系（重要）：
+#   ① 与 edgevision-dashboard.service（mp4 模式）**同端口 8090** → 写 Conflicts=（必须）
+#   ② 与 edgevision-preview(8080)、edgevision(9000) **抢同一个摄像头** → **故意不写** Conflicts=
+#      理由（与 preview unit 一致）：自动 stop 会让 7×24 推流静默断掉，用户看不见。
+#      改由 Agent 的 tool_control_service 在启动前用 fuser 探测并如实告知。
+# 为什么用两个独立 unit 而不是模板 unit：
+#   systemd 模板（@.service）在这里只会让 Agent 的别名解析更绕，
+#   两个独立 unit 的别名（dashboard / dashboard_cam）语义最直白。
+Conflicts=edgevision-dashboard.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/edgevision
+EnvironmentFile=-/etc/default/edgevision-dashboard-cam
+
+# 走 EV_VIDEO 环境变量而不是命令行 --cam：
+#   程序里 `args.video = env_video ? env_video : 默认mp4`，
+#   环境变量会被后续命令行参数覆盖 —— 用环境变量能保证"换设备不改 unit"，
+#   与 edgevision-preview 的做法保持一致。
+# DASH_PORT 单独留一个，方便排查时换端口。
+ExecStart=/root/edgevision/deploy/cpp/build_release/edgevision_dashboard \
+          --port ${DASH_PORT} --video ${DASH_CAM}
+
+# 与 preview 同样的死锁风险：HTTP 线程阻塞在 accept()，
+# SIGTERM 可能卡住 → 用 SIGKILL 保证能停干净。
+# SuccessExitStatus 让 stop 后状态是 inactive 而不是 failed，
+# 否则 Restart=on-failure 会把正常停止当崩溃重拉。
+KillSignal=SIGKILL
+KillMode=control-group
+TimeoutStopSec=10
+SuccessExitStatus=SIGKILL
+
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

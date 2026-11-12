@@ -1,0 +1,11 @@
+# EdgeVision 8080 预览的运行参数
+# 改完执行: systemctl restart edgevision-preview
+#
+# 2026-11-11 起 cam1(/dev/video81) 硬件损坏：空闲状态下 v4l2-ctl 抓帧恒 0 字节
+#   （1280x720 MJPG / 640x480 MJPG / YUYV 四种组合全试过），软件复位无效。
+#   cam2(/dev/video83) 同命令正常出帧（245~300 KB / 10 帧）。
+# 因此默认用 cam2。cam1 修好后把 PREVIEW_CAM 改回 /dev/video81。
+#
+# ⚠️ 与 edgevision.service（9000 网关）抢同一个摄像头设备，不能同时开。
+PREVIEW_CAM=/dev/video83
+PREVIEW_CONF=0.25

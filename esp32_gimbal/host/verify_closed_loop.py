@@ -64,6 +64,16 @@ def main():
     ap.add_argument("--max-step", type=float, default=6.0)
     ap.add_argument("--pan-range", type=float, default=90.0)
     ap.add_argument("--tilt-range", type=float, default=45.0)
+    ap.add_argument("--invert-pan", action="store_true",
+                    help="Pan 反号。判据：推云台右转，画面目标往左移=正常，往右移=要加")
+    ap.add_argument("--invert-tilt", action="store_true",
+                    help="Tilt 反号")
+    # ── 目标位置滤波（抑制单帧误检，见下方注释）──────────────────
+    ap.add_argument("--smooth", type=float, default=0.0,
+                    help="目标位置一阶低通系数 alpha（0=关闭；0.35 约滞后 2~3 帧）。"
+                         "单帧误检会把控制量带飞，开了更稳")
+    ap.add_argument("--jump-max", type=float, default=0.25,
+                    help="跳变抑制阈值（归一化）。单帧偏离滤波值超过它视为误检，丢弃该帧")
     args = ap.parse_args()
 
     # ---- 串口 ----
@@ -106,6 +116,11 @@ def main():
     trace = []           # (t, frame_id, dx, dy, pan, tilt)
     last_print = 0.0
 
+    # 一阶低通滤波状态（--smooth > 0 时才用）
+    sm_cx = None
+    sm_cy = None
+    frames_jump = 0      # 被判为误检丢弃的帧数
+
     print("=" * 70)
     print("闭环现场验收  mode=%s  source=%s:%d  sink=%s  %.0fs"
           % (args.mode, args.host, args.tcp_port, args.port, args.seconds))
@@ -127,9 +142,32 @@ def main():
                 lost += 1
                 continue
 
+            # ── 目标位置低通滤波（关键）──────────────────────────
+            # 不加这一层时实测会看到：dx 已经从 0.269 收敛到 0.069，
+            # 但中间某一帧检测框突然跳到别处 → 控制量被带飞 → pan 又冲回 -90。
+            # 单帧误检不应该影响云台，所以对 (cx, cy) 做一阶低通：
+            #     new = alpha*measured + (1-alpha)*previous
+            # alpha 越小越平滑、越滞后。云台转动本身不快（2.5°/帧），
+            # alpha=0.35 时滞后约 2~3 帧（~150ms），可以接受。
+            if args.smooth > 0:
+                a = args.smooth
+                if sm_cx is None:
+                    sm_cx, sm_cy = tgt["cx"], tgt["cy"]
+                else:
+                    # ★ 跳变判定必须用【原始测量】和【滤波值】比，不能拿滤波后的值比。
+                    #   滤波值天生就贴近上一帧，用它判断永远发现不了跳变（这是个真 bug）。
+                    if abs(tgt["cx"] - sm_cx) > args.jump_max:
+                        frames_jump += 1
+                        continue
+                    sm_cx = a * tgt["cx"] + (1 - a) * sm_cx
+                    sm_cy = a * tgt["cy"] + (1 - a) * sm_cy
+                cx_use, cy_use = sm_cx, sm_cy
+            else:
+                cx_use, cy_use = tgt["cx"], tgt["cy"]
+
             if args.mode == "absolute":
                 npan, ntilt, in_dz, dx, dy = compute_control_absolute(
-                    tgt["cx"], tgt["cy"], pan, tilt,
+                    cx_use, cy_use, pan, tilt,
                     args.pan_range, args.tilt_range,
                     args.gimbal_fov_pan, args.gimbal_fov_tilt,
                     args.fov_pan, args.fov_tilt,
@@ -137,10 +175,12 @@ def main():
                     deadzone=args.deadzone, max_step=args.max_step)
             else:
                 npan, ntilt, in_dz, dx, dy = compute_control(
-                    tgt["cx"], tgt["cy"], pan, tilt,
+                    cx_use, cy_use, pan, tilt,
                     args.kp_pan, args.kp_tilt, args.fov_pan, args.fov_tilt,
                     args.pan_range, args.tilt_range,
-                    args.deadzone, args.max_step)
+                    args.deadzone, args.max_step,
+                    invert_tilt=args.invert_tilt,
+                    invert_pan=args.invert_pan)
 
             if not in_dz and (abs(npan - pan) > 0.05 or abs(ntilt - tilt) > 0.05):
                 ok = send("P %.1f %.1f" % (npan, ntilt))
@@ -170,6 +210,8 @@ def main():
     elapsed = max(time.time() - t0, 1e-6)
     print("  运行 %.1fs  收到 %d 帧  下发 %d 条控制  串口错误 %d  无目标帧 %d"
           % (elapsed, frames, cmds, errs, lost))
+    if frames_jump:
+        print("  跳变帧（判为误检已丢弃）%d" % frames_jump)
     print("  控制频率 %.1f Hz" % (cmds / elapsed))
 
     if not trace:

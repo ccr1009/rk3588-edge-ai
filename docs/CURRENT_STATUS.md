@@ -187,6 +187,86 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
   ③无打断(barge-in),播报期间完全不听;④上下文无主动管理,顶到 16K 上限的行为未测。
   详见 `docs/tech_notes/VOICE_ASR_PLAN.md` **第 6 节** 与 `TROUBLESHOOTING.md` **第 29~36 条**(含全部真机输出与口径)。
 
+### ✅ 11-12 新增：8080 预览纳入 Agent 统一管控（第 5 个服务）
+
+**问题**：8080 实时预览此前是**手动进程**（`./w4_edgevision_preview_real /dev/video83 0.25`），
+Agent 完全管不到 —— 用户说"打开预览"只能得到一句"请自己敲命令"，且手动进程 `pkill` 停不掉
+（SIGTERM 卡在 `pthread_join` 等 HTTP 线程，而 HTTP 线程阻塞在 `accept()`，双死锁）。
+
+**交付三件**：
+1. **`edgevision-preview.service`**（新）—— 参数走 `/etc/default/edgevision-preview`
+   （`PREVIEW_CAM` / `PREVIEW_CONF`），换设备不用改 unit。
+   `KillSignal=SIGKILL` + **`SuccessExitStatus=SIGKILL`** 双配置：
+   前者保证一定能停（绕开死锁），后者让 `stop` 后状态是 `inactive` 而非 `failed`
+   （否则 `Restart=on-failure` 会把正常停止当崩溃去重拉）。
+2. **`control_service` 扩到 5 个服务**：新增 `preview`，返回 `url` +
+   `endpoints{index,stream,snapshot}` 三段地址，prompt 强制要求念出完整 IP（禁止 localhost）。
+3. **摄像头争用前置检查**（新逻辑）：preview 与 gateway 抢同一 V4L2 设备。
+   启动前用 `fuser` 探真值（**不是 pgrep**——pgrep 猜不到"进程开的是哪个设备"），
+   占着就返回 `error: camera_busy` 并说明要先停谁，**绝不静默 stop 另一个服务**
+   （7×24 推流断掉用户看不见）。
+
+**实测（2026-11-12，真机）**：
+| 用例 | 结果 |
+| :--- | :--- |
+| "打开摄像头实时预览，然后告诉我网页地址" | ✅ 自主调 `control_service(preview,start)`，汇报 `http://10.21.3.103:8080/`，HTTP 200 |
+| "把摄像头预览关掉" | ✅ `success:true / inactive`，8080 归零，`/dev/video83` 释放 |
+| 网关占着 cam2 时说"打开预览" | ✅ 返回 `camera_busy / held_by:服务 edgevision`，**网关保持 active 未被停** |
+| unit 启停可靠性 | ✅ start/stop/restart 全正常；`kill -9` 后 5 秒自愈（PID 1917→1932） |
+| 与 voice-gateway 共存 | ✅ 两者可同跑，但**单帧 35.7 → 40.9~51.8 ms（+15%~45%）**，NPU 真实争用 |
+
+**口径提醒**：`preview` + `voice-gateway` 同跑时帧率下降是**实测现象、不是 bug**，
+因为 Agent 常驻占 2 GB IOMMU、三核 NPU 共享。演示时若在意流畅度，先停语音网关。
+
+### ✅ 11-12 续：8090 摄像头模式 + 舵机误判修复（第 6/7 个服务）
+
+**背景**：用户要「5 项功能都能对话控制」。核查后发现两处缺口。
+
+**① 新建 `edgevision-dashboard-cam.service`（8090 摄像头模式）**
+
+原 8090 只跑 mp4（`ExecStart` 无 `--cam`），而程序本身**支持摄像头输入**。
+新增独立 unit 走 `--video /dev/video83`（程序里 `EV_VIDEO` 同源逻辑）。
+alias = `dashboard_cam`，与 mp4 模式的 `dashboard` 区分。
+
+实测：**29.19 FPS / 34.26 ms 每帧**，`/api/stats` 里 `"video":"/dev/video83"` 证明确实在读摄像头，
+比 mp4 模式（24.78 FPS / 40.35 ms）**还快**——因为省掉了 H.264 软解那 5.3 ms。
+
+同端口 8090 与 mp4 模式互斥，unit 里写 `Conflicts=`；但 Agent 层**又拦了一道**
+（`error: port_busy`），因为 `Conflicts=` 是静默 stop，用户会看到看板突然换了输入源。
+
+**② 修「舵机」导致 Agent 自杀（严重）**
+
+实测：说「启动舵机跟随」，模型调 `control_service(name="voice", action="start")`
+→ 命中"控制权交接"分支 → `g_stop=1` 关掉自己 → 回"8 秒后语音助手自动启动"。
+**一个舵机请求，把 Agent 弄死了。** 根因是服务表里没有舵机，模型只能从 5 个里挑最像的。
+
+修法：快速通道直接把舵机答死（"还没接入，需要 ESP32 接 USB"），并加进
+`g_service_in_turn` 守卫。同时 prompt 明令禁止为舵机调 `control_service`。
+**关键词刻意不用裸"跟随"**——将来会有"车辆跟随"这类视觉功能，用"舵机跟随"才准确。
+
+**③ 修「祈使句无动词」被判成 status**
+
+实测：说「用摄像头跑车辆检测」，因无"打开/启动"字样被判 `status`，
+回"摄像头看板没在运行"——用户说完指令，什么也没发生。
+改法：动作判定改为 **stop → status（仅显式问句）→ 其余一律 start**。
+服务类请求默认 start 更合理；真要查状态会说"在跑吗/开没开"。
+
+**验收（8 个场景全过）**：
+| 说法 | 结果 |
+| :--- | :--- |
+| 打开车辆检测看板 | ✅ 8090 mp4 模式，报地址 |
+| 用摄像头跑车辆检测 | ✅ 8090 摄像头模式，`"video":"/dev/video83"` |
+| 切到车辆视频检测（摄像头模式开着） | ✅ `port_busy`，拒绝且不停对方 |
+| 关掉摄像头看板 | ✅ inactive，8090 归零 |
+| 打开车辆视频检测（端口已空） | ✅ 8090 mp4 模式 |
+| 打开摄像头预览 | ✅ 8080，报地址 |
+| 用摄像头跑车辆检测（8080 开着） | ✅ `camera_busy`，preview 保持 active |
+| 启动舵机跟随 | ✅ "舵机云台还没接入"，**Agent 未自杀、voice 未被误启** |
+
+**服务总数**：`control_service` 现管理 **6 个 service / 7 个别名**
+（dashboard、dashboard_cam、gateway、preview、patrol、voice；
+其中 dashboard 与 dashboard_cam 共用 8090 端口）。
+
 ---
 
 ## 第二阶段进展(第 5~7 周):端侧推理深度剖析与模型优化 —— 核心已完成
@@ -459,6 +539,54 @@ cat /root/patrol/patrol_state.json     # 运行态一眼可见
 
 **入口统一**:`rkllm_embodied_agent` 已改为指向 `rkllm_embodied_agent_p0` 的**软链接**,只维护一份二进制。
 此前两个入口各自维护(`run_agent.sh` 调前者、交互会话跑后者),改完一个忘同步另一个,验证时因此跑了一次旧二进制。
+
+## 2026-11-11 修复 `cap >>` 断帧即 Aborted（4 个取流点全部加固）
+
+**现象**:`bash /root/lab/run_gimbal_tracking.sh`(纯预览)跑约 2 秒后:
+
+```
+terminate called after throwing an instance of 'cv::Exception'
+  what(): OpenCV(4.5.1) ../modules/imgcodecs/src/loadsave.cpp:768:
+            error: (-215:Assertion failed) !buf.empty() in function 'imdecode_'
+Aborted
+```
+
+**根因**:抛异常的**不是业务代码**,是 OpenCV 的 V4L2 后端。摄像头出 MJPEG,
+`cap >> bgr` 内部由 `cap_v4l.cpp` 调 `cv::imdecode` 解整包;驱动偶发交出 `bytesused==0`
+的坏包(USB 带宽/AE/舵机同线束干扰)时,4.5.1 不检查长度就解 → `CV_Assert(!buf.empty())` 抛异常。
+**`if (bgr.empty()) continue;` 完全无效**——异常在赋值语句内部就抛了,那行判空执行不到。
+
+**改动**(同一套 `cam_read()`:`try/catch` + 计数 + 清空 `dst` + 连续 8 帧重开设备):
+
+| 文件 | 说明 |
+|---|---|
+| `esp32_gimbal/host/w4_edgevision_gimbal_preview.cpp` | 崩的就是它;另加 `/status` 的 `dropped`/`reopens`/`badjpeg` 字段 + 网页面板「采集健康度」+ `imencode` 保护 |
+| `lab/vision/edgevision_gateway.cpp` | ⚠️ **最重要**:`edgevision.service` 7×24 常驻的 9000 网关,同一 bug 同样的设备/格式,只是没崩过 |
+| `lab/vision/edgevision_preview_real.cpp` | 8080 老预览,同一裸模式 |
+| `deploy/cpp/src/edgevision_dashboard_main.cpp` | 8090 看板当前跑 mp4 不吃摄像头,但 `--cam` 一开就是同一颗雷,先挡上 |
+
+**关键实现细节**:`cam_read()` 里**先 `dst.release()`**。`VideoCapture::read()` 失败时不改输出 Mat,
+不清空会让上一帧冒充新帧 → "画面冻结但帧率还在涨",比崩溃更难查。
+
+**验收**:
+- 离线 harness `esp32_gimbal/host/test_cam_read_harness.cpp`(stub `cv::VideoCapture`,
+  编程注入坏帧)6 条断言全过:异常不逃逸 / 计数准 / 坏帧后 `dst` 清空 /
+  连续 8 帧触发重开 / 每 60 帧偶发 1 次不误触发重开 / 预热断帧不崩
+  ```bash
+  cd esp32_gimbal/host
+  g++ -O2 -std=c++17 -Wall -Wextra -o /tmp/tcrh test_cam_read_harness.cpp && /tmp/tcrh
+  ```
+- 4 个源文件 `g++ -fsyntax-only -std=c++17 -Wall -Wextra` 零 error、无新增告警
+  (WSL + 最小 OpenCV stub;真机编译仍需在板端做,见下)
+- ⚠️ **板上二进制尚未重编**,现场仍是旧版。生效命令见 `docs/TROUBLESHOOTING.md` 第 53 条
+  (★ 那里记着一个坑:两个同名 `build_preview.sh` 编的不是同一个程序,
+  云台那个必须用绝对路径 `/root/esp32_gimbal/build_preview.sh`)
+- ⚠️ **已知盲区(别当成"彻底修好了")**:本次修的是**会崩**的那条路径(零长度载荷)。
+  同源的**静默重复帧**——载荷非零但解不出来时 `imdecode` 返回空 Mat 却不抛,
+  `retrieveFrame()` 仍返回 true 并交出上一帧——**没修也修不了**,
+  要等 OpenCV #30666 的修复进 5.2。表现为画面卡一下,不崩。
+
+详见 `docs/TROUBLESHOOTING.md` **第 53 条**。
 
 ## 面试材料(2026-10-30 更新)
 

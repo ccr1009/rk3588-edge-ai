@@ -115,7 +115,8 @@ def compute_control(target_cx, target_cy,
                     fov_pan, fov_tilt,
                     pan_range, tilt_range,
                     deadzone, max_step,
-                    invert_tilt=False):
+                    invert_tilt=False,
+                    invert_pan=False):
     """由目标在画面中的位置算出新的 pan/tilt。
 
     返回 (new_pan, new_tilt, in_deadzone, dx, dy)
@@ -129,6 +130,27 @@ def compute_control(target_cx, target_cy,
 
     先把像素偏差换成角度偏差再乘 kp，好处是 kp 有物理意义（0.5 = 每度偏差补 0.5 度），
     换摄像头/换分辨率不用重新瞎调。
+
+    ── invert_pan / invert_tilt 什么时候需要 ──────────────────────────
+    上面那套符号约定假设的是「标准安装」：云台右转，画面里的目标就往左移
+    （因为镜头转过去了，同一物体落到画面左侧）。这是一个**负反馈**：转 → 误差变小 → 停。
+
+    实测遇到过反向的情形（2026-11-03，摄像头装到云台平台上之后）：
+        云台往右转 → 目标在画面里反而往右跑 → dx 变大 → 更狠地往右转 → 顶死限位
+    这是**正反馈**，P 控制在这种符号下必然发散。表现是 pan 几秒内冲到 ±90° 卡住。
+
+    根因通常是三选一：
+      ① 舵机线接反 / 舵机内部绕线方向不同（换一颗舵机就可能变）
+      ② 固件的 PAN_INVERT/TILT_INVERT 没改
+      ③ 摄像头倒装 180°（此时 pan 和 tilt 会**同时**反号）
+
+    这三种在软件层无法区分，也不需要区分 —— 加一个符号翻转就够了，
+    比拆硬件重装便宜得多。**先试 invert，别急着拆。**
+
+    判据（不需要看代码就能判断）：
+        小角度轻推云台，看画面里目标往哪边移。
+        云台右转、目标左移 → 正常，不用 invert
+        云台右转、目标右移 → 加 invert_pan
     """
     dx = target_cx - 0.5
     dy = target_cy - 0.5
@@ -145,12 +167,27 @@ def compute_control(target_cx, target_cy,
 
     d_pan = err_pan_deg * kp_pan
     d_tilt = -err_tilt_deg * kp_tilt
+    if invert_pan:
+        d_pan = -d_pan
     if invert_tilt:
         d_tilt = -d_tilt
 
     # 单帧限速：目标突跳时云台不猛甩（机械冲击 = 扫齿风险）
     d_pan = clamp(d_pan, -max_step, max_step)
     d_tilt = clamp(d_tilt, -max_step, max_step)
+
+    # 已经顶在机械限位上、且控制量还要继续往外推 → 直接不动。
+    # 这种"饱和还继续推"对追踪毫无收益（转不动了），只是白白耗齿轮和电流。
+    # 不加这一条时实测会看到 pan 稳稳停在 90° 但每帧仍下发 P 90.0，长期堵转。
+    at_max = pan >= pan_range - 1e-6 and d_pan > 0
+    at_min = pan <= -pan_range + 1e-6 and d_pan < 0
+    if at_max or at_min:
+        d_pan = 0.0
+
+    at_tmax = tilt >= tilt_range - 1e-6 and d_tilt > 0
+    at_tmin = tilt <= -tilt_range + 1e-6 and d_tilt < 0
+    if at_tmax or at_tmin:
+        d_tilt = 0.0
 
     new_pan = clamp(pan + d_pan, -pan_range, pan_range)
     new_tilt = clamp(tilt + d_tilt, -tilt_range, tilt_range)

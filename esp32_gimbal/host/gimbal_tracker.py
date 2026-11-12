@@ -162,6 +162,9 @@ def main():
     ap.add_argument("--img-h", type=int, default=720, help="网关推流分辨率高")
     ap.add_argument("--invert-tilt", action="store_true",
                     help="Tilt 方向反了加这个（目标在上方但云台往下转时用）")
+    ap.add_argument("--invert-pan", action="store_true",
+                    help="Pan 方向反了加这个。判据：小角度推云台右转，"
+                         "画面里目标往左移=正常；往右移=要加这个")
     ap.add_argument("--rate", type=float, default=20.0, help="控制频率上限 Hz")
     ap.add_argument("--dry-run", action="store_true", help="只算角度，不发给舵机")
 
@@ -277,7 +280,9 @@ def main():
                     target["cx"], target["cy"], pan, tilt,
                     args.kp_pan, args.kp_tilt, args.fov_pan, args.fov_tilt,
                     args.pan_range, args.tilt_range,
-                    args.deadzone, args.max_step, args.invert_tilt)
+                    args.deadzone, args.max_step,
+                    invert_tilt=args.invert_tilt,
+                    invert_pan=args.invert_pan)
             if in_dz:
                 if time.time() - last_print > 0.5:
                     print("\r[追踪] 锁定 frame=%d 目标居中 pan=%.1f tilt=%.1f          "

@@ -97,7 +97,9 @@
 | `rknn_engine_dfl_free.cpp` | RKNN 引擎副本（主线在 `deploy/cpp/src/`） |
 | `rknn_convert_v2.py` | ONNX→RKNN 转换脚本（v2） |
 | `preview_detect.cpp` | 8080 预览的早期版本 |
-| `start_preview_real.sh` | 启动 8080 预览 |
+| `start_preview_real.sh` | 启动 8080 预览（**cam1，该设备 2026-11-11 已硬件损坏**） |
+| `repro_8080.sh` | **8080 预览一键复现**（cam2）：清场 → 摄像头自检 → 后台启动 → 三层判据验收。摄像头坏了会直接告错并叫你查线，不让你去查代码 |
+| `demo_edgevision.sh` | **演示一键起**：检查 cam2 drop-in → `systemctl start edgevision` → 验证 9000 真出帧（不是只看 active）→ 拉起 8090 看板 → 打印三个演示入口 |
 | `dg.cpp` | DRM buffer 试验（中文注释已损坏） |
 | `test_cap.cpp` / `test_dec.cpp` / `test_accuracy.cpp` / `test_dfl_free.cpp` | 各项单点验证 |
 | `step1.cpp` / `step2.cpp` / `step3.cpp` | 分步验证 |

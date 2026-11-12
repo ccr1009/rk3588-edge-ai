@@ -1,0 +1,10 @@
+# EdgeVision 8090 看板「摄像头模式」的运行参数
+# 改完执行: systemctl restart edgevision-dashboard-cam
+#
+# 与 mp4 模式（edgevision-dashboard.service）共用一个 8090 端口，两者互斥。
+# 与 8080 预览、9000 网关抢同一个摄像头，也互斥。
+#
+# 2026-11-11 起 cam1(/dev/video81) 已物理移除（设备节点都不存在），
+# 板上只剩 cam2(/dev/video83)，因此默认用它。
+DASH_CAM=/dev/video83
+DASH_PORT=8090

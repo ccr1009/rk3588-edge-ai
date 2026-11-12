@@ -2425,6 +2425,459 @@ tools\xtensa-esp-elf\esp-15.2.0_xxx\xtensa-esp-elf\bin\  → 多套一层同名�
 
 ---
 
+### 53. `cap >> bgr` 跑两秒就 Aborted：`imdecode_` 的 `!buf.empty()` 不是我们的代码抛的
+
+**现象**（2026-11-11，板端，`run_gimbal_tracking.sh` 纯预览模式）：
+
+```
+[profile] 采集   8.7 | 预处理  1.7 | NPU  15.8 | 解码  1.3 | 画框  2.3 | JPEG   7.3 || 合计  37.1 ms | P+0.0 T+0.0 TRACK | 拒绝框 0
+[profile] 采集   8.0 | 预处理  1.8 | NPU  19.2 | 解码  1.2 | 画框  1.9 | JPEG   7.2 || 合计  39.3 ms | P+0.0 T+0.0 LOST | 拒绝框 0
+terminate called after throwing an instance of 'cv::Exception'
+  what():  OpenCV(4.5.1) ../modules/imgcodecs/src/loadsave.cpp:768:
+            error: (-215:Assertion failed) !buf.empty() in function 'imdecode_'
+Aborted
+```
+
+**迷惑点**：用户代码里**一次 `cv::imdecode` 都没有**（只有 `cv::imencode`），
+而且循环里明明写了 `if (bgr.empty()) continue;` —— "我判空了啊，怎么还崩？"
+
+**根因**：抛异常的是 **OpenCV 的 V4L2 后端**，不是业务代码。
+
+```
+cv::VideoCapture cap("/dev/video81", cv::CAP_V4L2);
+cap.set(CAP_PROP_FOURCC, MJPG);          // 关键：摄像头出的是 MJPEG
+...
+cap >> bgr;   // 内部：VIDIOC_DQBUF → convertToRgb() → cv::imdecode(整个 JPEG buffer)
+```
+
+`cap_v4l.cpp`（4.5.1）第 1584 行，`convertToRgb()` 的 MJPEG 分支：
+
+```cpp
+// modules/videoio/src/cap_v4l.cpp:1584  (tag 4.5.1)
+case V4L2_PIX_FMT_MJPEG:
+case V4L2_PIX_FMT_JPEG:
+    CV_LOG_DEBUG(NULL, "... decoding JPEG frame: size=" << currentBuffer.buffer.bytesused);
+    cv::imdecode(Mat(1, currentBuffer.buffer.bytesused, CV_8U, currentBuffer.start),
+                 IMREAD_COLOR, &destination);
+    return;
+```
+
+它把 `bytesused` **直接当 Mat 的列数用**，三件事一件没做：
+
+| 缺什么 | 证据 |
+| :--- | :--- |
+| 不判 `bytesused == 0` | 0 直接变成 `Mat` 的 cols → 空 Mat |
+| 不查 `V4L2_BUF_FLAG_ERROR` | 整个 `cap_v4l.cpp` 里搜 `V4L2_BUF_FLAG_ERROR` **零命中** |
+| 不看 `imdecode` 返回值 | 传的 `Mat*` 重载，失败时 `destination` 被 release，旧帧原样留着 |
+
+于是 `bytesused == 0` 时 `Mat` 为空 → `imdecode_` 首行
+`CV_Assert(!buf.empty())`（`loadsave.cpp:768`，**和报错行号完全对得上**）
+抛 `cv::Exception`。而 `VideoCapture::read()`（`cap.cpp:336`）本身没有 try/catch，
+异常必然穿到业务栈 → 没有兜就是 `std::terminate` → `Aborted`。
+
+**⚠️ 一条容易带偏方向的推断（必须先排除）**：
+「是不是读到截断的 JPEG 了？」——**不是，截断的 JPEG 抛不出这个断言**。
+`Mat(1, N, CV_8U, ptr)` 的 `total() == N`，所以只要 `N > 0`，
+`!buf.empty()` 一定通过，后面 `findDecoder` 失败只是**返回 false**（出不了图），
+不抛异常。**能产生 `-215 !buf.empty()` 的只有 `N == 0`，即零长度载荷。**
+把排查方向定死在「谁给了空 buffer」，比去查"JPEG 为什么坏"省一整天。
+
+**为什么 `if (bgr.empty()) continue;` 完全没用**（本坑最重要的认知）：
+
+> 异常是在 `cap >> bgr` **这条赋值语句内部**抛出的，赋值根本没完成。
+> 控制流直接跳到栈展开，`bgr.empty()` 那一行**永远不会被执行到**。
+> 「我判了空」挡的是「读到一张空图」，挡不住「read() 自己抛异常」。
+
+**排查路径（可复用的方法论）**：
+
+1. `!buf.empty()` 里出现 `buf`，第一反应是"我们自己调了 imdecode？" → 全文搜 `imdecode`，
+   业务代码零命中，只命中注释 → **说明栈里有别的库在调**。
+2. 看异常里的路径 `modules/imgcodecs/src/loadsave.cpp` —— 那是**库的源文件**，
+   不是我们的。`what()` 里带着 `OpenCV(4.5.1)` 前缀，说明是 OpenCV 自己的 `CV_Assert`。
+3. 谁在调？唯一"我们没写但一定会解 JPEG"的地方就是 `cap >>`（MJPEG 格式）。
+   `cap.set(CAP_PROP_FOURCC, MJPG)` 这一行就是证据链的起点。
+4. 崩溃前两条 `[profile]` 都是正常帧 → 不是初始化问题，是**运行期偶发坏包**。
+
+**「升 OpenCV 能解决吗？」——不能，别在这上面浪费时间**
+
+4.6.0 同一处代码一字未改（`cap_v4l.cpp:1593`）；`4.x` 分支到目前还是这一行
+（`cap_v4l.cpp:1458`，`start` 换了个变量名而已），依旧无零长度检查、无 `FLAG_ERROR` 检查。
+上游修的是**姊妹症状**，不是这个异常：
+
+- [#30666](https://github.com/opencv/opencv/issues/30666)（已 closed，PR #30672 合入 5.2）：
+  「解码失败时 `retrieve()` 返回**上一帧**且返回 true」。修的是"静默重复帧"，**不是**抛异常。
+- [#30683](https://github.com/opencv/opencv/issues/30683)（**仍 open**）：
+  「bytesused 过短被忽略 + 缺 `V4L2_BUF_FLAG_ERROR` 检查」，仍处于等人提交 PR 的状态。
+
+**结论：升级版本对这个 Aborted 没有直接收益，只能在代码侧兜。**
+
+**⚠️ 这条修复的已知盲区（别以为修完就 100% 干净）**
+
+上面 #30666 描述的另一个缺陷我们**兜不住**：载荷**非零但解不出来**时
+（比如 `FF D8 FF` 开头跟一堆垃圾），`imdecode` 返回空 Mat 但**不抛**，
+而 `retrieveFrame()` 仍然 `return true` 并把**上一帧**交出来。
+于是 `read()` 返回 true、`dst` 非空 → 我们的 `cam_read()` 认为是好帧。
+表现是**静默重复帧**（画面卡一下），不是崩溃。
+
+这个只能靠"检测相邻帧完全相同"之类的业务侧弱校验来兜，代价不小；
+#30666 的修复要等 5.2。**记录在案，别在报告里说"断帧问题已彻底解决"。**
+
+顺带一条正面证据：#30666 的正文明确写了
+「UVC cameras deliver corrupt MJPEG frames in normal use, for example when USB packets are dropped」
+—— 这支持"上游触发条件就是 USB 丢包/带宽"这个推断，而不是摄像头坏了。
+
+**还有一个反直觉的好消息**：`cap >>` 抛过一次异常后，**对象仍可继续用，不必立刻重开设备**。
+源码依据（4.5.1 `retrieveFrame()` 2106-2139）：
+`convertToRgb()` 抛异常时，它后面的 `tryIoctl(VIDIOC_QBUF)` 和 `bufferIndex = -1`
+都没执行到 → 那个 buffer 漏还、`bufferIndex` 卡在 ≥0。
+但下一次 `grabFrame()` 开头就是 `if (bufferIndex >= 0) { tryIoctl(VIDIOC_QBUF, ...) }`，
+**自己会把漏还的 buffer 补还队列**。
+所以：偶发单帧 → `catch` + `continue` 就够；**只有连续多帧都读不出来**才说明
+不是偶发坏包而是管道真坏了，这时才需要重开设备。
+
+**解法**（4 个源文件同一套，`lab/vision/edgevision_gateway.cpp` /
+`edgevision_preview_real.cpp` / `deploy/cpp/src/edgevision_dashboard_main.cpp` /
+`esp32_gimbal/host/w4_edgevision_gimbal_preview.cpp`）：
+
+```cpp
+// ① 抽一个 cam_read()：try/catch + 计数 + 清空 dst
+static bool cam_read(cv::VideoCapture& cap, cv::Mat& dst) {
+    dst.release();                  // ★ 必须先清空！read() 失败时不改 Mat，
+                                    //   不清空会让上一帧冒充新帧（比崩溃更难查）
+    bool ok = false;
+    try { ok = cap.read(dst); }
+    catch (const cv::Exception& e) { g_cam_dropped++; g_consec++; return false; }
+    if (!ok || dst.empty()) { g_cam_dropped++; g_consec++; return false; }
+    g_consec = 0;
+    return true;
+}
+
+// ② 主循环：坏帧跳帧，连续 8 帧失败就重开设备
+if (!cam_read(cap, bgr)) {
+    if (g_consec >= 8) { g_reopens++; cap.release(); cap.open(dev, CAP_V4L2); /* 重设参数 */ }
+    usleep(5000);
+    continue;
+}
+
+// ③ 预热那 15 帧同样要包（它也在解 MJPEG，"启动即崩"和"跑两秒崩"是同一个 bug）
+// ④ imencode 也包 try/catch；失败时不要把空 jpg 发布出去（否则 /stream 会卡死）
+```
+
+**关键是别只 catch 不计数**：悄悄吞掉 = 谎报帧率（AGENTS.md 第①条）。
+现在断帧数会出现在三处：`[profile]` 行尾的 `断帧 N 重开 M`、
+`/status` 的 JSON 字段 `dropped`/`reopens`/`badjpeg`、网页面板的「采集健康度」。
+判据很简单：**`dropped` 一直在涨 = USB 链路/带宽有问题，画面看着正常也在丢帧**。
+
+**验收（离线可控复现，不占摄像头）**：`esp32_gimbal/host/test_cam_read_harness.cpp`
+—— 把 `open_camera()`/`cam_read()` 原文抽进一个带 stub `cv::VideoCapture` 的 harness，
+用"第 N 帧抛异常 / 返回 false"编程注入坏帧，断言 6 条：
+① 异常不逃逸 ② 计数准确 ③ 坏帧后 `dst` 被清空 ④ 连续 8 帧触发重开
+⑤ 每 60 帧偶发 1 次不误触发重开 ⑥ 预热阶段断帧不崩。全部通过。
+
+```bash
+cd esp32_gimbal/host
+g++ -O2 -std=c++17 -Wall -Wextra -o /tmp/tcrh test_cam_read_harness.cpp && /tmp/tcrh
+# → ==== 全部通过 (fail=0) ====
+```
+
+4 个源文件 `g++ -fsyntax-only -std=c++17 -Wall -Wextra` 零 error、无新增告警
+（WSL + 最小 OpenCV stub；真机编译仍需板端做，见下方上线命令）。
+
+**还建议做一次真实归因**（本次未做，留作下一步）：4.5.1 第 1583 行已经有
+`CV_LOG_DEBUG("... decoding JPEG frame: size=" << bytesused)`。
+板端带上环境变量跑一次：
+
+```bash
+OPENCV_LOG_LEVEL=DEBUG bash /root/lab/run_gimbal_tracking.sh 2>&1 | grep -E 'decoding JPEG|断帧|Aborted'
+```
+
+若崩溃前最后一行打出 `size=0` → 「零长度载荷」这个根因就被实测钉死（现在只是源码级推断）。
+若打出的是 `size=非0` → 我的结论需要修正，先回来改这一条。
+
+**降低触发概率（按性价比排序，均为推测/经验，需板端验证）**：
+
+| 手段 | 依据 |
+| :--- | :--- |
+| 两个摄像头挂**不同 USB 控制器**，不共用 hub | USB2 等时带宽余量偏紧是最可能的上游触发条件 |
+| 降到 `1280x720@15` 或 `960x540@30` | 给带宽留余量，最直接的降丢包手段 |
+| 关自动曝光 `-c exposure_auto=1 -c exposure_auto_priority=0` | UVC 弱光下拉长曝光会掉帧（网关代码里已有这一句） |
+| `dmesg \| grep -i uvc` 找 `Dropping payload` / `out of sync` | 确认是不是驱动层在吐坏包 |
+
+**上线命令（改了源码不等于生效，板端二进制要重编）**
+
+```bash
+# ---- ① 崩的那个：云台一体化预览 ----
+scp esp32_gimbal/host/w4_edgevision_gimbal_preview.cpp \
+    rk3588:/root/lab/w4_edgevision_gimbal_preview.cpp
+ssh rk3588 'bash /root/esp32_gimbal/build_preview.sh'    # ★ 绝对路径，见下方警告
+ssh rk3588 'bash /root/lab/run_gimbal_tracking.sh ""'    # 纯预览模式验证
+
+# ---- ② 最重要的：9000 网关（systemd 7×24，同一 bug 但没崩过）----
+scp lab/vision/edgevision_gateway.cpp rk3588:/root/lab/w4_edgevision_gateway.cpp
+ssh rk3588 'bash /root/lab/build_w4_gateway.sh'
+ssh rk3588 'systemctl restart edgevision && systemctl is-active edgevision'
+
+# ---- ③ 8080 老预览 ----
+scp lab/vision/edgevision_preview_real.cpp rk3588:/root/lab/w4_edgevision_preview_real.cpp
+ssh rk3588 'bash /root/lab/build_preview.sh'
+```
+
+> ⚠️ **两个同名 `build_preview.sh` 编的不是同一个程序**（第 48 条踩过同类坑）：
+> - `esp32_gimbal/host/build_preview.sh` → 编 `w4_edgevision_gimbal_preview`（云台一体化）
+> - `lab/build/build_preview.sh` → 编 `w4_edgevision_preview_real`（8080 老预览）
+>
+> 板端 `/root/lab/build_preview.sh` 是**后者**。所以①必须用绝对路径
+> `/root/esp32_gimbal/build_preview.sh`，否则会"编译成功"但编的是另一个文件，
+> 你还以为修好了 —— 这正是第 48 条「同名脚本有几份，改了那份不生效」的原样复发。
+
+**方法论收获**：
+
+1. **报错指向的符号名，先确认它是谁的。** `!buf.empty()` 看着像"你没给数据"，
+   实际是库内的防御断言；判断依据是 `what()` 里的库名和源文件路径。
+2. **"我明明判空了"这种自信最危险。** 判空只能覆盖"函数正常返回但没给图"，
+   覆盖不了"函数自己被抛异常中断"。凡是可能抛的 API，判断顺序必须是 try → 判空。
+3. **同一个模式要在全仓库搜同类，不能只修崩的那一处。** 本次 4 处同构代码，
+   3 处没崩过只是运气（其中 `edgevision_gateway.cpp` 是 **systemd 7×24 常驻**的那一个，
+   它要是崩，整个视觉链路离线，症状还是"9000 断流"，根本看不出是摄像头）。
+4. **吞异常必须配计数 + 外显。** 否则"能跑"掩盖"在丢帧"，正是本项目明令禁止的
+   「看起来在工作」陷阱。
+5. **"修好了"要说清修好的是哪一部分。** 本次修的是**会崩**的那条路径；
+   同源的"静默重复帧"路径（载荷非零但解不出，#30666）**没修、也修不了**，
+   已在上面「已知盲区」里写明。负结论和局限一样要写，
+   否则下次有人看到"已修复"就以为这条链路彻底干净了。
+
+---
+
+### 54. `select() timeout` 刷屏、一帧都读不到：先查「谁占着设备」和「我上一版加了什么」
+
+**现象**（2026-11-11，紧接第 53 条那次 `Aborted` 之后）：
+
+```
+[+] 模型 ... 纯预览模式（不驱动云台）
+[ WARN:0] global ../modules/videoio/src/cap_v4l.cpp (1004) tryIoctl
+          VIDEOIO(V4L2:/dev/video81): select() timeout.
+[ WARN:0] ... （反复刷）
+```
+
+同时**网页 8080 打不开**。用户报的是两个问题，其实是**一条因果链**。
+
+**先分清两个不同的"没拿到帧"** —— 这个区分是后续所有判断的基础：
+
+| 症状 | 含义 | 属于 |
+| :--- | :--- | :--- |
+| `cv::Exception ... !buf.empty()` → `Aborted` | 驱动给了数据，但**长度是 0** | 第 53 条 |
+| `select() timeout` 刷屏 | 驱动**一个字节都没给**，我们等到超时 | 本条 |
+
+后者更"安静"：它不崩、不报错，只是永远读不到帧。源码依据（4.5.1 `cap_v4l.cpp:1000-1007`）：
+`select()` 返回 0 时打一行 warning 然后 **`return false`** —— 不抛异常。
+所以 `cam_read()` 那套 try/catch **对它完全无效**，必须有别的判据。
+
+**本次的两个真根因**
+
+1. **我自己加的 `cap.set(CAP_PROP_BUFFERSIZE, 1)` 把流打回去了。**
+   OpenCV 4.5.1 的 setter（`cap_v4l.cpp:1999-2008`）不是记个数字，
+   只要新旧值不同就 `return v4l2_reset();`，而
+
+   ```cpp
+   bool v4l2_reset() { streaming(false); releaseBuffers(); return initCapture(); }
+   ```
+
+   即**停流 → 释放全部 mmap 缓冲 → 重新协商格式 → 重新申请缓冲**。
+   默认是 `DEFAULT_V4L_BUFFERS = 4`，我传 1 → 必然触发。而我们刚 `open()` 完、
+   驱动还没出第一帧，这一重置正好把正在起的流打回去。
+
+   > **教训：「顺手优化」也要先看它在库里到底做了什么。**
+   > 那一行的收益（少 3 个缓冲、少点延迟）远小于风险，已删除，
+   > 让 OpenCV 用自己的默认值。
+
+2. **`systemctl stop edgevision` 只杀网关，不管残留的预览进程。**
+   UVC 单进程独占，但**新实例 `open()` 有时照样成功**，只是 `DQBUF` 永远拿不到帧 ——
+   因为另一进程已经把帧消费掉了。这比 `open()` 直接失败更难查：
+   程序一副"我打开成功了"的样子。已加进 `run_gimbal_tracking.sh` 的 `[1/3]` 步。
+
+**为什么"网页打不开"是同一条链上的第二个症状**
+
+程序原来是这样排的：
+
+```
+open_camera()  ← 卡在这里（15 次 × 10 秒 = 150 秒）
+    ↓
+pthread_create(http_server_thread)  ← 8080 到这一步才 bind
+```
+
+摄像头卡住 → HTTP 线程根本没起来 → 浏览器连不上。
+用户看到"网页打不开"，很自然地会去查端口占用/防火墙，**方向完全错了**。
+
+**改法**：把两个服务线程**提到摄像头前面**启动。
+这样摄像头再慢再坏，页面都打得开，`/status` 能读 `dropped` 计数，
+`/snapshot` 返回 `503 No Frame` —— 一眼区分「服务死了」和「相机没出图」。
+
+**另外两个止血点**：
+
+```cpp
+// main() 最开头，早于任何 VideoCapture（OpenCV 是 static 初始化，只会读一次）
+setenv("OPENCV_VIDEOIO_V4L_SELECT_TIMEOUT", "3", 0);   // 默认 10 秒/次 → 3 秒
+```
+
+```cpp
+// 预热循环加早退：连续 3 帧 0 进展就 break，别死等 15 次
+if (i >= 2 && warm_ok == 0) { /* 打日志 + 跳出去让服务先起来 */ break; }
+```
+
+最坏卡住时间从 150 秒降到 ~9 秒内，且卡住时页面依然可访问。
+
+**设备真卡死了怎么办：`uvc_recover.sh`**
+
+进程被 `Aborted` / `kill -9` 杀掉时**不会走释放路径**（停流是 ioctl 通知内核的，
+进程硬死就没了），uvcvideo 可能还以为有人占着流。软件层 `cap.release(); cap.open()`
+**只重开 fd，不复位 USB**，救不回来。需要靠 sysfs 解绑/重绑驱动重新枚举：
+
+```bash
+bash /root/esp32_gimbal/uvc_recover.sh            # 自动找 /dev/video81 的接口
+bash /root/esp32_gimbal/uvc_recover.sh /dev/video83
+bash /root/esp32_gimbal/uvc_recover.sh --list     # 只看拓扑不动手
+```
+
+内核机制和本仓库已在 CH34x 串口上验证过的 `host/usb_reset.sh` 完全相同
+（`echo $IFACE > .../uvcvideo/unbind` → sleep → `bind`），只是驱动名换成 `uvcvideo`。
+
+> ⚠️ **重新枚举后 `/dev/videoN` 编号可能变**。脚本最后会打印复位后的实际节点，
+> 别想当然以为还是 `video81`。
+
+**现场诊断顺序（照这个顺序查，别跳步）**
+
+```bash
+# ① 谁占着设备？fuser 报 PID 但 ps 查不到 = 陈旧内核记录，不算占用
+fuser -v /dev/video81; pgrep -af 'w4_edgevision'
+ls -l /proc/<pid>/fd 2>/dev/null | grep video     # 确认到底是谁
+
+# ② 拓扑对不对？两颗摄像头是不是挤在同一个 hub/控制器上
+cat /sys/class/video4linux/video81/device/../product
+readlink -f /sys/class/video4linux/video81/device
+lsusb; lsusb -t
+
+# ③ 驱动层有没有在吐坏包/掉线（第 53 条的触发条件）
+dmesg | grep -iE 'uvc|usb|xhci' | tail -30
+# 关注：Dropping payload / out of sync / error -71(EPROTO) / disconnect / reset
+
+# ④ 硬件能力：720p MJPG 到底支持哪些帧率档
+v4l2-ctl -d /dev/video81 --list-formats-ext
+v4l2-ctl -d /dev/video81 --get-parm
+
+# ⑤ 上面的都对、还是读不到 → 复位
+bash /root/esp32_gimbal/uvc_recover.sh
+```
+
+**⚠️ 复位有效性实测（2026-11-11 补齐，结论是**负**的）**
+
+之前这里写的是“没有复位成功记录”。现在有了 —— 但方向相反：
+**软件层三种复位全试过，对「一颗已经不出帧的 cam1」无效。**
+
+现场：`/dev/video81` 抓帧恒 0 字节，`/dev/video83` 同命令 86016 字节（对照组证明命令没错）。
+
+| 复位手段 | 命令核心 | cam1 结果 |
+| :--- | :--- | :--- |
+| ① 模拟热插拔 | `echo 0 > /sys/bus/usb/devices/2-1.1/authorized` → `1` | ❌ 仍 0 字节 |
+| ② 驱动解绑重绑 | `echo 2-1.1:1.0 > /sys/bus/usb/drivers/uvcvideo/unbind` → `bind` | ❌ 仍 0 字节 |
+| ③ 格式矩阵降级 | 1280×720/MJPG、640×480/MJPG、640×480/YUYV、320×240/YUYV | ❌ **四种全 0** |
+
+复位后 dmesg 有关键一行：`uvcvideo: Found UVC 1.00 device ...` + `retire_capture_urb: 30 callbacks suppressed`
+—— **设备被重新枚举出来了、URB 也在跑，但用户态一个字节都拿不到**。
+配合更早的 `usb 2-1.1: USB disconnect, device number 3` 与 `Non-zero status (-71) in video completion handler`
+（EPROTO = USB 等时传输出错），判据就明确了：**内核对设备的软件视图完全正常，坏在设备/线缆/供电这一层。**
+
+**所以排查顺序要加一条硬规则**：
+
+> 抓帧返回 0 字节时，**先做「换设备」对照**（同命令抓 cam2），
+> 再决定要不要查代码。
+> 本次一开始花了大量时间查 `do_select`、查 `pthread_cond_wait`、查端口 ——
+> 全是**下游症状**；而对面的 cam2 用同一条命令就能出图，一步就能把「代码问题」证伪。
+
+**面试讲法（这条比成功案例更值钱）**：软件复位的边界在哪。
+`unbind/bind` 能救的是**驱动状态机卡住**（进程被 kill -9 后 uvcvideo 以为流还在），
+救不了**设备不再交数据**。区分方法就是看 `bind` 之后 `v4l2 --stream-count` 有没有字节 ——
+有字节说明是驱动状态问题（复位有效），0 字节说明是物理层（只能换线/换供电/换摄像头）。
+这也解释了我之前写的“设备层得靠 udev，我没做到那层”：不是没做，是**那层做不到**。
+
+**方法论收获**：
+
+1. **两种"没拿到帧"必须分开：给了坏数据 vs 没给数据。** 前者的修复（try/catch）
+   对后者完全无效；只看"读不到帧"就套同一个补丁，会得出"修了但没用"的错误结论。
+2. **症状链要往前追一层。** 「网页打不开」不是网络问题，是「摄像头卡住」的下游。
+   把服务启动顺序调一下，这个二阶症状直接消失 —— 比排查端口快得多。
+3. **`change` 之后先怀疑自己。** 这次第一根因就是我自己上一版加的 `BUFFERSIZE`。
+   「以前好好的，改完就坏了」时，第一个该 diff 的是**自己的改动**，
+   而不是「驱动是不是坏了 / 摄像头是不是烧了」。
+4. **依赖不能指向空气。** 这次代码注释里写了「见第 54 条」而第 54 条不存在 ——
+   悬空引用比没有引用更糟，它让人以为答案已经写过了。
+
+---
+
+### 55. 8080 端口的「假死」：端口没开、进程却在，其实是卡在预热循环（云台版已修，8080 版**没修**）
+
+**现象**（2026-11-11，接第 54 条现场）：
+
+```
+浏览器 http://<board-ip>:8080/  → 转圈，无画面
+ps aux  → ./w4_edgevision_preview_real /dev/video81 0.25   进程 2097 明明在
+ss -ltn → 没有 8080 监听
+```
+
+看起来自相矛盾：进程活着，端口却不存在。
+
+**根因就是第 54 条那个启动顺序**，但这次拿到了**精确的时间证据**：
+
+```cpp
+// edgevision_preview_real.cpp:459-466 —— 8080 版至今仍是这个顺序
+for (int i = 0; i < 15; ++i) {           // 15 帧 AE 预热
+    if (!cam_read(cap, warm)) usleep(2000);
+}
+pthread_create(&http_tid, nullptr, http_server_thread, nullptr);  // ← 8080 才 bind
+```
+
+摄像头不出帧 → 每帧 `select()` 撞 10 秒超时 → **15 × 10 = 150 秒后才 bind**。
+
+**实测曲线**（每 10 秒采一次，`etime` 是进程存活时长）：
+
+| etime | threads | wchan | 8080 监听 |
+| --- | --- | --- | --- |
+| 01:52 | **1** | do_select | 0 |
+| 02:02 | 1 | do_select | 0 |
+| 02:12 | 1 | do_select | 0 |
+| 02:23 | 1 | do_select | 0 |
+| **02:33** | **2** | do_select | **1** ← 突然出现 |
+
+`threads` 从 1 变 2 与 8080 出现**同一时刻**发生。单线程的进程当然没有 HTTP 线程 ——
+`pthread_create` 还没执行到。这就是「进程在、端口不在」的全部解释。
+
+**注意这时候 8080 起来也没用**：HTTP 线程起来后卡在
+`pthread_cond_wait(&g_jpeg_cond)`（`futex_wait_queue_me`），
+等主循环产出第一帧 JPEG。主线程永远拿不到帧 → 条件变量永远不被 signal
+→ **端口能连上，但 `/`、`/snapshot`、`/stream` 全部挂起不返回**。
+浏览器表现是转圈而非「连接被拒绝」，容易误判成网络/防火墙问题。
+
+**为什么修法只在云台版落地了**
+
+第 54 条写的修法（服务线程提到摄像头前面 + `OPENCV_VIDEOIO_V4L_SELECT_TIMEOUT=3`
++ 预热早退）全部改在 `esp32_gimbal/host/w4_edgevision_gimbal_preview.cpp`。
+`lab/vision/edgevision_preview_real.cpp` **一行都没改** —— 它是同一个 bug 的另一份拷贝。
+第 54 条方法论第 4 点已经点名过「修完一处要全文搜同类模式」，这次是**自己犯了同一条**。
+
+> **待办（未做）**：把这三处修法同步到 `lab/vision/edgevision_preview_real.cpp`。
+> 在改之前，8080 在相机故障时**必然**先卡 150 秒再给你一个连得上但无响应的端口。
+
+**方法论收获**：
+
+1. **「进程在、端口不在」先数线程，不要数端口。**
+   `ps -o nlwp=` 一眼就能判：单线程 = 还没走到 `pthread_create`，
+   多线程 = 线程起来了但卡在内部（再去查 `wchan`）。
+   这比 `strace` 或翻代码快得多。
+2. **端口 listen 成功 ≠ 服务可用。** 服务可用还要满足「能产出数据」。
+   本条的端口确实在 listen，但 `/stream` 一个字节都不发 ——
+   判据必须是「GET 有响应体」，不是「TCP 能连上」。
+3. **对照组救了我两次。** 线程数突变给出精确时刻；cam2 抓帧成功证伪"命令写错"。
+   没有对照的实验全是猜测。
+
 ---
 | 类别 | 一句话 |
 | :--- | :--- |
@@ -2442,6 +2895,9 @@ tools\xtensa-esp-elf\esp-15.2.0_xxx\xtensa-esp-elf\bin\  → 多套一层同名�
 | 并发 | 实时推流队列必须做背压/丢旧，否则断连重连会导致历史积压雪崩 |
 | 摄像头 | 不设 `CAP_PROP_FPS` 就用设备默认档（20fps），**默认值 ≠ 物理上限** |
 | 摄像头 | `cap.get(CAP_PROP_FPS)` 回读值会骗人，必须实测帧间隔才算数 |
+| 摄像头 | **抓帧 0 字节先做「换设备」对照**（同命令抓另一颗），一步证伪"代码问题"；软件复位只能救驱动状态卡死，救不了设备不交数据 |
+| 摄像头 | 「进程在、端口不在」→ `ps -o nlwp=` 数线程：单线程 = 还没走到 `pthread_create` |
+| 摄像头 | 端口 listen 成功 ≠ 服务可用；必须用「GET 有响应体」验收，不能只看「TCP 能连上」 |
 | OpenCV | `initUndistortRectifyMap(m1type=CV_16SC2)` 固定产出 map2=CV_16UC1，定点/浮点查表是整条方案的开关 |
 | OpenCV | `cv2.FileStorage` 在 Windows 走窄字符 fopen，**中文路径必炸**；imread 却没事（API 不一致），写 yml 先试 ASCII 临时目录再搬 |
 | 升级 | OpenCV 5.0 删了 `FileNode.int_value()`；标定脚本换机器跑先冒烟一遍再信「上次是好的」 |
@@ -2526,3 +2982,14 @@ tools\xtensa-esp-elf\esp-15.2.0_xxx\xtensa-esp-elf\bin\  → 多套一层同名�
 | 构建 | 绕过 IDF `export.ps1` 时要**手动补 `ESP_IDF_VERSION`**，否则 `idf_component_manager` 拿到 `None` 抛 `TypeError: expected string or bytes-like object` |
 | 构建 | `.espressif\tools` 布局**不统一**（`ninja\ver\x.exe` / `cmake\ver\bin\x.exe` / `xtensa-esp-elf\ver\xtensa-esp-elf\bin\x.exe` 三种）→ 递归扫含 `.exe` 的目录，别硬编码层级 |
 | 构建 | `esp-rom-elfs` 的版本子目录名随安装而变（本机 **20241011**，网上常见的是 20250925）→ 动态取最新目录，别抄别人的路径 |
+| 摄像头 | **`cap >> mat` 会抛 `cv::Exception`**（OpenCV 的 V4L2 后端在内部 `imdecode` 解 MJPEG）。**`if (mat.empty())` 挡不住**——异常在赋值语句内部就抛了，那行判空根本执行不到。必须 `try { cap.read(m) } catch` |
+| 摄像头 | **`select() timeout` 和 `!buf.empty()` 是两种病**：前者=驱动一个字节没给（`return false` 不抛，try/catch 无效），后者=给了零长度包。只看"读不到帧"就套同一个补丁 = 修了没用 |
+| 摄像头 | **`cap.set(CAP_PROP_BUFFERSIZE, N)` 会触发完整的 `v4l2_reset()`**（停流+释放+重新协商+重新申请），不是记个数字。刚 `open()` 完就设它 = 把正在起的流打回去 |
+| 摄像头 | 摄像头卡住时「网页打不开」是**二阶症状**：HTTP 线程如果在 `open_camera()` 之后才创建，就永远等不到 bind。**服务线程要排在设备打开之前** |
+| 摄像头 | UVC 单进程独占，但**新实例 `open()` 可能照样成功、只是 DQBUF 永远拿不到帧**（帧被别的残留进程吃了）。`fuser` 有 PID 先 `kill -0` 验活 |
+| 摄像头 | 进程被 `Aborted`/`kill -9` **不走释放路径**，uvcvideo 以为流还在。软件层 `release()+open()` 只重开 fd **不复位 USB**，得 sysfs unbind/bind 重新枚举 |
+| 排错 | **改完就坏了，第一个该 diff 的是自己的改动**，不是"驱动坏了/硬件烧了" |
+| 文档 | **注释里写「见第 N 条」前先确认第 N 条真的存在** —— 悬空引用比没有引用更糟，它让人以为答案已经写过了 |
+| OpenCV | 看到 `!buf.empty() in function 'imdecode_'` 而自己没调过 imdecode：查 `what()` 里的库名与 `modules/xxx/src` 路径，**判断它是库内的 CV_Assert**，再找"我们没写但一定会解 JPEG"的地方（`VideoCapture` + MJPG） |
+| 摄像头 | 换掉裸 `cap >>` 时**必须先 `dst.release()`**：`VideoCapture::read()` 失败时不改输出 Mat，不清空会让上一帧冒充新帧 → "画面冻结但帧率在涨"，比崩溃更难查 |
+| 工程习惯 | 吞掉的异常必须**计数 + 外显**（日志/JSON/面板三处）：悄悄 catch = 谎报帧率，和"用假数据"同类 |

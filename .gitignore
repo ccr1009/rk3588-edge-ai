@@ -58,3 +58,12 @@ lab/agent_test_results/*
 
 # Windows 沙箱权限修复的备份（2026-10-29，ACL 报告 + 回滚脚本，含本机 SID，不入库）
 _acl_report/
+
+# ---- 2026-11-12 补充：拆分前清理 ----
+# 简历解读 docx（含手机号/邮箱，公开仓库绝不能有）
+deliverables/
+# 会话临时目录（诊断脚本、临时快照）
+.tmp_resume/
+# 云台工程的临时截图（调试时从板子回拉的，无代码价值）
+esp32_gimbal/_*.jpg
+esp32_gimbal/host/results_*.txt

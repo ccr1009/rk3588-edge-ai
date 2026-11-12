@@ -479,9 +479,14 @@ int main(int argc, char** argv) {
         system(cmd);
 
         // 硬件预热 15 帧确保自动曝光收敛
+        // ★ 这 15 帧也在解 MJPEG，也会抛 —— 裸 cap.read() 会让 --cam 模式启动即崩
         cv::Mat warm;
         for (int i = 0; i < 15; ++i) {
-            cap.read(warm);
+            try {
+                cap.read(warm);
+            } catch (const cv::Exception&) {
+                usleep(2000);
+            }
         }
         src_w = (int)cap.get(cv::CAP_PROP_FRAME_WIDTH);
         src_h = (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT);
@@ -586,7 +591,19 @@ int main(int argc, char** argv) {
         // ---- 6.1 读帧（含视频循环）----
         double t0 = now_ms();
         cv::Mat raw;
-        if (!cap.read(raw) || raw.empty()) {
+        // cap.read() 走 OpenCV V4L2 后端时会在内部 cv::imdecode 解 MJPEG，
+        // 驱动偶发 bytesused==0 的坏包会抛 cv::Exception（4.5.1 不查长度）。
+        // 现在默认跑 mp4 不受影响，但 --cam 一开就是同一颗雷，先挡上。
+        bool read_ok = false;
+        try {
+            read_ok = (cap.read(raw) && !raw.empty());
+        } catch (const cv::Exception& e) {
+            static int cam_dropped = 0;
+            if (++cam_dropped <= 5 || cam_dropped % 60 == 0)
+                fprintf(stderr, "[!] 断帧#%d: %s\n", cam_dropped, e.what());
+            read_ok = false;
+        }
+        if (!read_ok) {
             if (is_cam) {
                 usleep(5000);
                 continue;
@@ -594,7 +611,13 @@ int main(int argc, char** argv) {
             // 读完一圈 -> 回到第 0 帧
             cap.set(cv::CAP_PROP_POS_FRAMES, 0);
             ++loop_index;
-            if (!cap.read(raw) || raw.empty()) {
+            bool again = false;
+            try {
+                again = (cap.read(raw) && !raw.empty());
+            } catch (const cv::Exception&) {
+                again = false;
+            }
+            if (!again) {
                 fprintf(stderr, "[FAIL] 读取视频帧失败，重新回到开头依然失败，退出\n");
                 break;
             }

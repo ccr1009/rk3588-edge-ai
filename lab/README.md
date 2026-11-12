@@ -14,6 +14,9 @@
 > 2026-11-02 重排：原先 72 个文件全部平铺在 `lab/` 根下，找东西靠翻。
 > 现在按职责分成 8 个子目录，**顶层只剩这份 README**。
 
+> 📖 **想先了解整个仓库的目录结构**（哪些是主线、哪些是历史遗留、哪些别动），
+> 看 [`../PROJECT_STRUCTURE.md`](../PROJECT_STRUCTURE.md)。这份文件只讲 `lab/` 内部。
+
 ---
 
 ## 一、按职责找东西
@@ -102,15 +105,25 @@
 | `pc_client_viewer.py` | PC 端 9000 推流查看器 |
 | `run_agent_test.py` | 板端 Agent 测试驱动 |
 
-### `services/` — systemd unit（5 个）
+### `services/` — systemd unit（6 个 .service + 4 个配置）
 
 | 文件 | 装到板上 |
 | :--- | :--- |
 | `voice-gateway.service` | `/etc/systemd/system/`（**含 `Conflicts=edgevision.service`**） |
 | `tts-daemon.service` | `/etc/systemd/system/` |
 | `edgevision-dashboard.service` | `/etc/systemd/system/`（读 mp4，**不占摄像头**） |
+| `edgevision-dashboard-cam.service` | `/etc/systemd/system/`（**8090 摄像头模式，2026-11-12 新增**，占摄像头） |
+| `edgevision-dashboard-cam.default` | `/etc/default/`（`DASH_CAM` / `DASH_PORT`） |
+| `edgevision-preview.service` | `/etc/systemd/system/`（**8080 预览，2026-11-12 新增**，占摄像头） |
+| `edgevision-preview.default` | `/etc/default/`（`PREVIEW_CAM` / `PREVIEW_CONF`） |
 | `edgevision-patrol.service` | `/etc/systemd/system/` |
 | `edgevision-patrol.default` | `/etc/default/`（`PATROL_ARGS`） |
+| `edgevision-cam2.conf` | `/etc/systemd/system/edgevision.service.d/cam2.conf`（drop-in，把网关从坏 cam1 切 cam2） |
+
+> **为什么 preview 也用 unit**：2026-11-12 之前它是手动进程，`pkill` 停不掉
+> （SIGTERM 卡在 `pthread_join`，HTTP 线程阻塞在 `accept()`，双死锁），
+> 而且 Agent 完全管不到。unit 里 `KillSignal=SIGKILL` + `SuccessExitStatus=SIGKILL`
+> 两行配合，既不卡死、`stop` 后状态也正确（`inactive` 而非 `failed`）。
 
 ### `build/` — 编译与上线（6 个）
 

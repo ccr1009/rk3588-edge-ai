@@ -118,6 +118,52 @@ static void letterbox(const cv::Mat& src, cv::Mat& dst, int target_size,
 }
 
 // -------------------------------------------------------------
+// 4.5 MJPEG 断帧计数（2026-11-11 加，见下方 camera_producer_thread 注释）
+// -------------------------------------------------------------
+// 为什么必须有：本线程的 `cap >> bgr_mat` 走的是 OpenCV 的 V4L2 后端，
+// 由它内部调 cv::imdecode 解 MJPEG。驱动偶发交出 bytesused==0 的坏包时，
+// OpenCV 4.5.1 的 cap_v4l.cpp 不检查长度就直接 imdecode → 抛 cv::Exception。
+// 这个异常发生在 read() 内部，`if (bgr_mat.empty())` 那行根本轮不到执行，
+// 于是穿出线程函数 → std::terminate → systemd 拉起一个"崩了就重启"的循环。
+//
+// 必须避免的写法：只 catch 不计数。那是把故障藏起来（AGENTS.md 第①条），
+// 所以每次断帧都累加 g_cam_dropped 并打到 stderr（前 5 次 + 之后每 60 次）。
+//
+// ⚠️ 这里**没有**把断帧数塞进 248B 检测帧：那是和 Agent/上位机逐字节对齐的
+//    接口契约（DETECT_PORT 协议），加字段就是改契约，所有下游要跟着改。
+//    要长期观测就另开一个独立端点，别动这个结构体。
+static uint64_t g_cam_dropped     = 0;
+static uint64_t g_cam_reopens     = 0;
+static int      g_cam_consec_fail = 0;
+static const int CAM_REOPEN_AFTER = 8;   // 连续 8 帧（≈0.27s@30fps）判管道已死
+
+// 读一帧到 dst。返回 false = 坏帧（已计数）。
+// 注意：VideoCapture::read() 失败时不改输出 Mat，所以必须先 release，
+// 否则上一帧会冒充新帧被继续推理/推流（表现为"画面冻结但帧率还在涨"）。
+static bool cam_read(cv::VideoCapture& cap, cv::Mat& dst) {
+    dst.release();
+    bool ok = false;
+    try {
+        ok = cap.read(dst);
+    } catch (const cv::Exception& e) {
+        g_cam_dropped++;
+        g_cam_consec_fail++;
+        if (g_cam_dropped <= 5 || (g_cam_dropped % 60) == 0) {
+            std::cerr << "[CamThread] [!] 断帧#" << g_cam_dropped
+                      << "（重开 " << g_cam_reopens << "）: " << e.what() << "\n";
+        }
+        return false;
+    }
+    if (!ok || dst.empty()) {
+        g_cam_dropped++;
+        g_cam_consec_fail++;
+        return false;
+    }
+    g_cam_consec_fail = 0;
+    return true;
+}
+
+// -------------------------------------------------------------
 // 5. 摄像头生产者线程（OpenCV V4L2 取流 + letterbox 预处理）
 // -------------------------------------------------------------
 void* camera_producer_thread(void* arg) {
@@ -141,10 +187,11 @@ void* camera_producer_thread(void* arg) {
     system(cmd);
 
     // 硬件预热：丢弃前 15 帧，确保自动曝光 (AE) 充分收敛
+    // ★ 这 15 帧同样在解 MJPEG，同样会抛 —— 必须用 cam_read() 而不是裸 `cap >>`。
     std::cout << "[CamThread] 摄像头已开启，正在预热 15 帧自动曝光...\n";
     cv::Mat warm_mat;
     for (int i = 0; i < 15; ++i) {
-        cap >> warm_mat;
+        if (!cam_read(cap, warm_mat)) usleep(2000);
     }
     std::cout << "[CamThread] 摄像头预热完成，开始实时抓拍推流！\n";
 
@@ -152,8 +199,26 @@ void* camera_producer_thread(void* arg) {
     cv::Mat bgr_mat, lb_mat, rgb_mat;
 
     while (g_running) {
-        cap >> bgr_mat;
-        if (bgr_mat.empty()) {
+        if (!cam_read(cap, bgr_mat)) {
+            // 连续坏帧到阈值 → 管道已不可信，重开设备（先 release 避免独占冲突）
+            if (g_cam_consec_fail >= CAM_REOPEN_AFTER) {
+                g_cam_reopens++;
+                std::cerr << "[CamThread] [!] 连续 " << g_cam_consec_fail
+                          << " 帧读不出，第 " << g_cam_reopens << " 次重开 " << dev_path << "\n";
+                g_cam_consec_fail = 0;
+                cap.release();
+                cap.open(dev_path, cv::CAP_V4L2);
+                if (cap.isOpened()) {
+                    cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+                    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
+                    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+                    cap.set(cv::CAP_PROP_FPS, 30);
+                } else {
+                    std::cerr << "[CamThread] [-] 重开失败，退避 1s\n";
+                    usleep(1000000);
+                }
+                continue;
+            }
             usleep(5000);
             continue;
         }

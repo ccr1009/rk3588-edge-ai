@@ -881,10 +881,19 @@ static bool port_ok(const char* port, int tries) {
 
 struct ServiceEntry { const char* alias; const char* unit; const char* desc; };
 static const ServiceEntry kServices[] = {
-    {"dashboard", "edgevision-dashboard", "车辆实时检测看板 (HTTP :8090, 摄像头 /dev/video83)"},
-    {"gateway",   "edgevision",           "TCP 推流网关 (定长帧 :9000, 摄像头 /dev/video81)"},
+    {"dashboard", "edgevision-dashboard", "车辆实时检测看板 (HTTP :8090, 读 mp4 不占摄像头)"},
+    {"gateway",   "edgevision",           "TCP 推流网关 (定长帧 :9000, 摄像头见 /etc/default/edgevision 或 drop-in)"},
     {"patrol",    "edgevision-patrol",    "巡检守护 (快层, 纯 C 循环, 不占 NPU)"},
     {"voice",     "voice-gateway",        "语音交互网关 (本体: ASR + Agent + TTS)"},
+    // 2026-11-12 新增：8080 摄像头实时预览。
+    // 在此之前它是**手动进程**（./w4_edgevision_preview_real /dev/video83 0.25），
+    // Agent 完全管不到 —— 用户说"打开预览"只能得到一句"请自己敲命令"。
+    {"preview",   "edgevision-preview",   "摄像头实时预览 (HTTP :8080, MJPEG + 3D 框 + BEV 雷达)"},
+    // 2026-11-12 新增：8090 看板的**摄像头模式**（原 8090 只跑 mp4）。
+    // 为什么要两个：mp4 模式和摄像头模式效果不同（摄像头模式有真 3D 框 + 距离标注，
+    // 实测 29.5 fps，比 mp4 还快），而 --cam 参数原先没接进 unit，
+    // Agent 只能开 mp4。两个独立 unit 让用户能明确选"视频"还是"摄像头"。
+    {"dashboard_cam", "edgevision-dashboard-cam", "车辆检测看板-摄像头模式 (HTTP :8090, 真 3D 框 + BEV 雷达)"},
 };
 static const int kServiceCount = (int)(sizeof(kServices) / sizeof(kServices[0]));
 
@@ -907,6 +916,73 @@ static bool in_voice_gateway() {
     std::string comm;
     if (!(f >> comm)) return false;
     return comm.find("voice_gateway") != std::string::npos;
+}
+
+// -------------------------------------------------------------
+// 摄像头争用检测（2026-11-12）
+// -------------------------------------------------------------
+// 为什么必须在 Agent 层做，而不是靠 systemd 的 Conflicts=：
+//   preview(8080) 与 gateway(9000) 抢同一个 V4L2 设备。
+//   靠 Conflicts= 会在"用户只想看预览"时静默 stop 掉 7×24 网关 ——
+//   用户完全不知道自己的推流断了。这正是本项目最忌讳的"悄悄改变状态"。
+//   所以改成：启动前主动探测，把冲突如实告诉用户，让用户决定。
+//
+// 探针用 fuser 而不是 pgrep：
+//   设备真正被谁 open 着，只有 V4L2 说得清。pgrep 只能猜"进程在不在"，
+//   猜不到"它开的是哪个设备"。
+static std::string cam_holder(const char* dev) {
+    // fuser 把 PID 打到 stderr，且以空格分隔；无占用时返回空串
+    std::string pids = run_cmd(std::string("fuser ") + dev + " 2>/dev/null");
+    while (!pids.empty() && (pids.back() == ' ' || pids.back() == '\n')) pids.pop_back();
+    while (!pids.empty() && pids.front() == ' ') pids.erase(pids.begin());
+    return pids;
+}
+
+// 取某服务当前命令行里用的摄像头设备（从 /proc/<pid>/cmdline 读真值，
+// 不去解析 unit 文件 —— unit 可能被 drop-in 覆盖，解析文件容易读到旧值）。
+static std::string service_cam(const char* unit) {
+    std::string pids = run_cmd(std::string("systemctl show -p MainPID --value ") + unit + " 2>/dev/null");
+    if (pids.empty() || pids == "0") return "";
+    std::string path = "/proc/" + pids + "/cmdline";
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return "";
+    std::string raw;
+    char c;
+    while (f.get(c)) raw += (c == '\0' ? ' ' : c);
+    size_t p = raw.find("/dev/video");
+    if (p == std::string::npos) return "";
+    size_t e = raw.find(' ', p);
+    return raw.substr(p, (e == std::string::npos) ? std::string::npos : e - p);
+}
+
+// preview 自己的设备从 EnvironmentFile 读（它可能还没启动，没有 PID 可查）
+static std::string preview_cam_from_env() {
+    std::ifstream f("/etc/default/edgevision-preview");
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.rfind("PREVIEW_CAM=", 0) == 0) {
+            std::string v = line.substr(12);
+            while (!v.empty() && (v.back() == '\r' || v.back() == ' ')) v.pop_back();
+            return v;
+        }
+    }
+    return "/dev/video83";   // 与 default 文件保持一致的兜底
+}
+
+// 8090 看板摄像头模式的设备，同样从 EnvironmentFile 读。
+// 注意它可能压根就是 mp4 模式 —— 但那个走的是另一个 unit（edgevision-dashboard），
+// 这里的 unit 只用于摄像头模式，所以 DASH_CAM 为空时才回退。
+static std::string dashboard_cam_from_env() {
+    std::ifstream f("/etc/default/edgevision-dashboard-cam");
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.rfind("DASH_CAM=", 0) == 0) {
+            std::string v = line.substr(9);
+            while (!v.empty() && (v.back() == '\r' || v.back() == ' ')) v.pop_back();
+            return v;
+        }
+    }
+    return "/dev/video83";
 }
 
 std::string tool_control_service(const std::string& name, const std::string& action) {
@@ -1016,6 +1092,86 @@ std::string tool_control_service(const std::string& name, const std::string& act
     std::string prev = (action == "status")
                      ? "" : run_cmd(std::string("systemctl is-active ") + svc->unit + " 2>&1");
 
+    // ---- 摄像头争用前置检查（只对 preview / gateway / dashboard_cam 有意义）----
+    // 这三个服务抢同一个 V4L2 设备。硬启动会导致：
+    //   ① 后启动的那个 open() 成功但永远 DQBUF 不到帧（静默假死，最坑）
+    //   ② 或直接花屏/掉帧
+    // 所以先探测"目标设备现在被谁占着"，占着就直接拒绝并说明怎么办，
+    // 绝不静默 stop 掉另一个服务。
+    if (action == "start") {
+        const std::string alias = svc->alias;
+        const bool uses_cam = (alias == "preview" || alias == "gateway" ||
+                               alias == "dashboard_cam");
+        if (uses_cam) {
+            std::string want_dev;
+            if (alias == "preview")            want_dev = preview_cam_from_env();
+            else if (alias == "dashboard_cam") want_dev = dashboard_cam_from_env();
+            else                               want_dev = service_cam("edgevision");
+
+            // 目标设备标定不出来时不做拦截（可能是改成 mp4 文件了，不再抢摄像头）
+            if (!want_dev.empty() && want_dev.rfind("/dev/video", 0) == 0) {
+                std::string holder = cam_holder(want_dev.c_str());
+                // 自己已经在跑时 holder 里会有自己的 PID —— 那不算冲突
+                std::string self_pids;
+                {
+                    std::string p = run_cmd(std::string("systemctl show -p MainPID --value ")
+                                            + svc->unit + " 2>/dev/null");
+                    if (!p.empty() && p != "0") self_pids = p;
+                }
+                bool conflict = false;
+                if (!holder.empty()) {
+                    if (self_pids.empty() || holder.find(self_pids) == std::string::npos)
+                        conflict = true;
+                }
+
+                if (conflict) {
+                    // 查清"是谁占着"，好让回答具体可操作
+                    std::string by = "未知进程";
+                    const char* cands[] = {"edgevision", "edgevision-preview",
+                                           "edgevision-dashboard-cam"};
+                    for (const char* c : cands) {
+                        if (run_cmd(std::string("systemctl is-active ") + c + " 2>&1") == "active") {
+                            by = std::string("服务 ") + c;
+                            break;
+                        }
+                    }
+                    // 告诉用户该停谁：把"占着摄像头的那个"翻成它的别名
+                    std::string other_alias = "gateway";
+                    if (by.find("edgevision-preview") != std::string::npos)         other_alias = "preview";
+                    else if (by.find("edgevision-dashboard-cam") != std::string::npos) other_alias = "dashboard_cam";
+
+                    ss << "\"success\": false, \"error\": \"camera_busy\", "
+                       << "\"camera\": \"" << want_dev << "\", "
+                       << "\"held_by\": \"" << by << "\", "
+                       << "\"holder_pids\": \"" << holder << "\", "
+                       << "\"note\": \"" << want_dev << " 已被 " << by << " 占用，"
+                       << "无法启动 " << alias << "。这几个服务抢同一个摄像头，物理上不能同时开。"
+                       << "需要先停掉它（control_service name=" << other_alias
+                       << " action=stop），再启动本服务。我不会替你自动停——"
+                       << "停掉 7×24 推流/预览会造成你看不到的断流。\"}]";
+                    return ss.str();
+                }
+            }
+        }
+
+        // 8090 端口冲突：dashboard(mp4) 与 dashboard_cam 同端口，物理上不能共存
+        // unit 里虽写了 Conflicts=（systemd 会处理），但那是**静默 stop**，
+        // 用户不知道自己的 mp4 看板被顶掉了。所以这里先拦一道，让用户自己决定。
+        if (alias == "dashboard" || alias == "dashboard_cam") {
+            const char* other = (alias == "dashboard") ? "edgevision-dashboard-cam"
+                                                       : "edgevision-dashboard";
+            const char* other_alias = (alias == "dashboard") ? "dashboard_cam" : "dashboard";
+            if (run_cmd(std::string("systemctl is-active ") + other + " 2>&1") == "active") {
+                ss << "\"success\": false, \"error\": \"port_busy\", "
+                   << "\"port\": 8090, \"held_by\": \"服务 " << other << "\", "
+                   << "\"note\": \"8090 端口已被 " << other << " 占用（它可能是 mp4 模式或摄像头模式，"
+                   << "两者同端口）。要切换得先停掉它（control_service name=" << other_alias
+                   << " action=stop）。我不会自动停——否则你会看到看板突然变成另一种输入源。\"}]";
+                return ss.str();
+            }
+        }
+    }
+
     std::string out = run_cmd("systemctl " + action + " " + svc->unit + " 2>&1");
 
     // start/stop 是异步的：systemctl 返回不代表服务真的起来了。
@@ -1033,8 +1189,12 @@ std::string tool_control_service(const std::string& name, const std::string& act
     bool not_ready = false;
     if (action == "start" && ok) {
         const std::string a = svc->alias;
-        if      (a == "dashboard") ok = http_ok("8090", 10);
-        else if (a == "gateway")   ok = port_ok("9000", 10);
+        if      (a == "dashboard")     ok = http_ok("8090", 10);
+        else if (a == "dashboard_cam") ok = http_ok("8090", 15);
+        else if (a == "gateway")       ok = port_ok("9000", 10);
+        // preview 用 HTTP 探针：它起来后 HTTP 线程要等主循环产出第一帧，
+        // 相机没帧时端口开了也不响应 —— 必须验到有响应体才算成功。
+        else if (a == "preview")       ok = http_ok("8080", 15);
         if (!ok) not_ready = true;
     }
 
@@ -1043,8 +1203,8 @@ std::string tool_control_service(const std::string& name, const std::string& act
         ss << ", \"error_detail\": \"" << out.substr(0, 160) << "\"";
 
     if (not_ready)
-        ss << ", \"note\": \"进程起来了但端口没通——多半是 NPU 内存不足导致模型加载失败。"
-              "建议先关掉语音助手或看板再试。\"";
+        ss << ", \"note\": \"进程起来了但端口没通——多半是 NPU 内存不足导致模型加载失败"
+              "或摄像头没出帧。建议先关掉语音助手或看板再试。\"";
     else if (action == "stop" && ok && prev != "active")
         ss << ", \"note\": \"本来就没在运行。\"";
     // 看板占 NPU，必须让模型主动告知用户"之后我会变慢"
@@ -1052,18 +1212,35 @@ std::string tool_control_service(const std::string& name, const std::string& act
         ss << ", \"note\": \"" << (action == "start"
                  ? "看板已启动(:8090)。视觉推理会占用 NPU，我之后的响应会变慢，这是正常的资源争用。"
                  : "看板已停止，NPU 已释放，响应速度恢复正常。") << "\"";
+    else if (std::string(svc->alias) == "dashboard_cam" && ok)
+        ss << ", \"note\": \"" << (action == "start"
+                 ? "摄像头看板已启动(:8090，实时摄像头输入)。占用 NPU 且独占摄像头，我之后的响应会变慢。"
+                 : "摄像头看板已停止，摄像头与 NPU 已释放。") << "\"";
+    else if (std::string(svc->alias) == "preview" && ok)
+        ss << ", \"note\": \"" << (action == "start"
+                 ? "预览已启动(:8080)，同样占用 NPU，我之后的响应会变慢。"
+                 : "预览已停止，NPU 已释放。") << "\"";
     else if (ok && action == "start")
         ss << ", \"note\": \"" << svc->desc << " 已启动。\"";
 
     // 访问地址必须由工具给出，不能让模型自己编 ——
     // 模型默认会说 localhost，而用户在另一台电脑上访问 localhost 就是他自己的机器。
-    if (std::string(svc->alias) == "dashboard") {
+    if (std::string(svc->alias) == "dashboard" ||
+        std::string(svc->alias) == "dashboard_cam") {
         ss << ", \"url\": \"http://" << local_ip() << ":8090/\", "
            << "\"url_note\": \"这是用户在自己电脑浏览器里该打开的地址。"
               "不要说 localhost 或 127.0.0.1，那个指向用户自己的机器。\"";
     } else if (std::string(svc->alias) == "gateway") {
         ss << ", \"url\": \"tcp://" << local_ip() << ":9000\", "
            << "\"url_note\": \"TCP 定长帧协议，不是网页，不能直接用浏览器打开。\"";
+    } else if (std::string(svc->alias) == "preview") {
+        ss << ", \"url\": \"http://" << local_ip() << ":8080/\", "
+           << "\"endpoints\": {"
+           << "\"index\": \"http://" << local_ip() << ":8080/\", "
+           << "\"stream\": \"http://" << local_ip() << ":8080/stream\", "
+           << "\"snapshot\": \"http://" << local_ip() << ":8080/snapshot\"}, "
+           << "\"url_note\": \"这是用户在自己电脑浏览器里该打开的地址。"
+              "不要说 localhost 或 127.0.0.1，那个指向用户自己的机器。\"";
     }
 
     ss << "}]";
@@ -1339,6 +1516,25 @@ bool try_fast_path(const std::string& q, std::string& out) {
         return true;
     }
 
+    // ---- 0.7 舵机/云台：硬件未接入，必须直接答死，绝不能让模型去猜 ----
+    // 实测踩过（2026-11-12）：说"启动舵机跟随"，模型调了
+    // control_service(name="voice", action="start")，触发了"控制权交接"分支
+    // —— 它把自己的主循环 g_stop=1 关掉，然后报"8 秒后语音助手自动启动"。
+    // 一个"舵机"请求，结果是 Agent 自杀。根因是服务表里没有舵机，
+    // 模型只能从 5 个服务里挑一个最像的，挑中了 voice。
+    //
+    // 正确处理：这里是**已知的物理缺失**（ESP32 未接、无 /dev/ttyUSB*），
+    // 属于确定性事实，代码答掉比让 20 亿参数模型猜靠谱得多。
+    // 将来硬件接上后，这里要改成真正的服务控制。
+    // 注意不要把裸 "跟随" 放进来：以后会有"车辆跟随"这类视觉功能，
+    // 用"舵机跟随/云台跟随"这种带主语的词组才准确。
+    if (has_any(q, {"舵机", "云台", "伺服", "gimbal", "舵机跟随", "云台跟随"})) {
+        out = "舵机云台还没接入，现在控制不了。"
+              "需要 ESP32-S3 通过 USB 连上板子（会出现 /dev/ttyUSB0），"
+              "再把云台预览程序编出来才行。";
+        return true;
+    }
+
     // ---- 0.5 寒暄：模型见到人就想找个理由调工具 ----
     // 实测：说"你好"，它调了 get_led_status，然后回答变成"指示灯当前心跳呼吸…"。
     // 寒暄不需要任何数据，直接在代码里答掉，既快又不可能答歪。
@@ -1362,20 +1558,52 @@ bool try_fast_path(const std::string& q, std::string& out) {
     // 但要排除"怎么/在哪/为什么"这类元问题——它们问的是方法，不是指令。
     const bool meta = has_any(q, {"怎么", "如何", "为什么", "是什么", "干什么",
                                   "有什么用", "在哪", "哪里"});
+    // 注意关键词顺序：先判具体组合词，再判泛词。
+    // 实测踩过（2026-11-12）：
+    //   ① 只说"预览"时既不含"看板"也不含"网关" → 规则全不命中 → 落到 LLM
+    //      → 模型把"关掉预览"理解成 control_led(off)，灯关了预览还开着，还汇报成功。
+    //   ② 说"车辆检测实时预览"，因为含"预览"被映射到 preview(8080)，
+    //      但用户其实通常想要 8090 那套（3D 立方体框 + 距离标注，效果更好）。
+    //
+    // 现在的划分原则（越具体越优先）：
+    //   "摄像头检测/摄像头看板/摄像头实时"  → dashboard_cam (8090 摄像头模式)
+    //   "车辆视频/视频检测/mp4"             → dashboard     (8090 mp4 模式)
+    //   "看板/车辆检测/8090"                → dashboard     (8090 mp4 模式，默认)
+    //   "预览/8080"                         → preview       (8080)
     if (!meta &&
-        has_any(q, {"看板", "8090", "车辆检测", "推流", "9000", "网关", "巡检守护", "语音助手"})) {
+        has_any(q, {"看板", "8090", "车辆检测", "推流", "9000", "网关", "巡检守护", "语音助手",
+                    "预览", "8080", "摄像头", "实时画面", "视频检测", "车辆视频"})) {
         std::string name;
-        if (has_any(q, {"看板", "8090", "车辆检测"}))          name = "dashboard";
-        else if (has_any(q, {"推流", "9000", "网关"}))         name = "gateway";
-        else if (q.find("巡检守护") != std::string::npos)       name = "patrol";
-        else if (q.find("语音助手") != std::string::npos)       name = "voice";
+        if (has_any(q, {"摄像头检测", "摄像头看板", "摄像头实时", "摄像头跑", "用摄像头"})) {
+            name = "dashboard_cam";          // 8090 摄像头模式（最具体，先判）
+        } else if (has_any(q, {"视频检测", "车辆视频", "视频流", "mp4", "录像"})) {
+            name = "dashboard";               // 8090 mp4 模式
+        } else if (has_any(q, {"预览", "8080"})) {
+            name = "preview";                 // 8080
+        } else if (has_any(q, {"看板", "8090", "车辆检测"})) {
+            name = "dashboard";               // 8090（默认 mp4）
+        } else if (has_any(q, {"推流", "9000", "网关"})) {
+            name = "gateway";
+        } else if (q.find("巡检守护") != std::string::npos) {
+            name = "patrol";
+        } else if (q.find("语音助手") != std::string::npos) {
+            name = "voice";
+        }
 
         if (!name.empty()) {
             std::string action;
-            if (has_any(q, {"关掉", "关闭", "停掉", "停止", "别开"})) action = "stop";
-            else if (has_any(q, {"打开", "启动", "开启", "开始", "开一下", "开开", "开起来"}))
-                                                                     action = "start";
-            else                                                     action = "status";
+            // 先判 stop，再判 start，最后才是 status。
+            // 实测踩过（2026-11-12）：说"用摄像头跑车辆检测"——这句是**祈使句**，
+            // 但没有"打开/启动"字样，于是被判成 status，回了一句"摄像头看板没在运行"，
+            // 用户说完指令，什么也没发生。
+            // 服务类请求默认为 start 更合理：用户提到"跑/用/切到"某个服务，
+            // 意图几乎都是"让它动起来"；真要查状态会说"在跑吗/开没开"。
+            if (has_any(q, {"关掉", "关闭", "停掉", "停止", "别开", "别跑"}))       action = "stop";
+            else if (has_any(q, {"在跑吗", "开着吗", "开没开", "状态", "在运行吗",
+                                 "运行了吗", "有没有开"}))                        action = "status";
+            else if (has_any(q, {"打开", "启动", "开启", "开始", "开一下", "开开", "开起来",
+                                 "跑", "用", "切到", "换成", "来一个"}))           action = "start";
+            else                                                                  action = "start";
 
             std::string obs;
             if (action == "start" && g_start_in_turn >= 1) {
@@ -1389,10 +1617,29 @@ bool try_fast_path(const std::string& q, std::string& out) {
             std::string active = extract_json_field(obs, "active");
             std::string url    = extract_json_field(obs, "url");
             std::string note   = extract_json_field(obs, "note");
+            std::string err    = extract_json_field(obs, "error");
             // 回答必须带对象名：只说"已停止。"，用户不知道停的是哪台服务
-            const std::string zh = (name == "dashboard") ? "看板"
-                                 : (name == "gateway")   ? "推流网关"
-                                 : (name == "patrol")    ? "巡检守护" : "语音助手";
+            const std::string zh = (name == "dashboard")     ? "看板"
+                                 : (name == "dashboard_cam") ? "摄像头看板"
+                                 : (name == "gateway")       ? "推流网关"
+                                 : (name == "preview")       ? "摄像头预览"
+                                 : (name == "patrol")        ? "巡检守护" : "语音助手";
+
+            // 摄像头被占：这是最常见的失败，必须说清"谁占着 + 怎么解"
+            if (err == "camera_busy") {
+                std::string by = extract_json_field(obs, "held_by");
+                std::string dev = extract_json_field(obs, "camera");
+                out = zh + "打不开，" + dev + " 已被 " + by + " 占用。"
+                      "这几个服务抢同一个摄像头，得先关掉它再启动。";
+                return true;
+            }
+            // 8090 端口被另一种模式占着（mp4 ↔ 摄像头）
+            if (err == "port_busy") {
+                std::string by = extract_json_field(obs, "held_by");
+                out = zh + "打不开，8090 端口已被 " + by + " 占用。"
+                      "要看另一种输入源，得先关掉它再启动。";
+                return true;
+            }
 
             if (action == "status") {
                 out = zh + (active == "active" ? "正在运行。" : "没在运行。");
@@ -1407,7 +1654,14 @@ bool try_fast_path(const std::string& q, std::string& out) {
                     out = zh + pick_variant({"已启动。", "开好了。", "已经打开了。"}, seed);
                 else
                     out = zh + "启动失败，请稍后再试。";
-                if (active == "active" && !url.empty()) out += "访问地址 " + url;
+                // 启动成功必须带地址 —— 用户不知道端口也不知道板子 IP
+                // preview 和两个看板都是网页，用"浏览器打开"；网关是 TCP，措辞不同
+                if (active == "active" && !url.empty()) {
+                    if (name == "preview" || name == "dashboard" || name == "dashboard_cam")
+                        out += "浏览器打开 " + url;
+                    else
+                        out += "访问地址 " + url;
+                }
             } else {
                 // voice+stop 是「延迟 3 秒自杀」的特殊路径：此刻 active 仍是 active，
                 // 但已经安排好了退出。不能按"没停掉"来报失败。
@@ -1504,6 +1758,10 @@ void run_agent_turn(LLMHandle handle, RKLLMInferParam& infer, const std::string&
     // 按用户意图预判本轮是不是"服务类请求"，而不是等 control_service 被调用后再判断。
     // 原因：实测模型会**先**调 control_led(heartbeat) **再**调 control_service ——
     // 等第二个发生时灯已经被改了。所以必须在回合开始就封住灯控。
+    //
+    // 2026-11-12 补 "预览/8080/摄像头"：实测问"把摄像头预览关掉"时，
+    // 模型第一反应是 control_led(off)（把"关掉"理解成关灯），
+    // 因为原列表里没有 preview 相关词，守卫没生效 → 灯被误关。
     g_service_in_turn =
         user_query.find("看板")     != std::string::npos ||
         user_query.find("网关")     != std::string::npos ||
@@ -1512,7 +1770,13 @@ void run_agent_turn(LLMHandle handle, RKLLMInferParam& infer, const std::string&
         user_query.find("服务")     != std::string::npos ||
         user_query.find("8090")     != std::string::npos ||
         user_query.find("9000")     != std::string::npos ||
-        user_query.find("车辆检测") != std::string::npos;
+        user_query.find("车辆检测") != std::string::npos ||
+        user_query.find("预览")     != std::string::npos ||
+        user_query.find("8080")     != std::string::npos ||
+        user_query.find("摄像头")   != std::string::npos ||
+        user_query.find("实时画面") != std::string::npos ||
+        user_query.find("舵机")     != std::string::npos ||
+        user_query.find("云台")     != std::string::npos;
 
     std::cout << "\n========================================================" << std::endl;
     std::cout << "👤 [User]: " << user_query << std::endl;
@@ -1660,9 +1924,16 @@ int main(int argc, char** argv) {
         "- 查询画面识别目标请调用 get_vision_telemetry。\n"
         "- 查询巡检守护产生的硬件告警事件请调用 get_patrol_events。\n"
         "- 查询巡检守护**当前是否在运行、实际生效阈值、当前告警状态**请调用 get_patrol_status。\n"
-        "- 用户要求打开/关闭/查询**车辆检测看板、推流网关、巡检守护**时，调用 control_service(name, action)。"
-        "name 与口头的对应关系：看板/车辆检测/8090 → dashboard；推流/网关/9000 → gateway；"
-        "巡检守护 → patrol；语音助手/你自己 → voice。\n"
+        "- 用户要求打开/关闭/查询**车辆检测看板、推流网关、巡检守护、摄像头预览**时，调用 control_service(name, action)。"
+        "name 与口头的对应关系："
+        "看板/车辆检测/8090/车辆视频/视频检测 → dashboard（视频 mp4 模式）；"
+        "摄像头检测/摄像头看板/用摄像头跑 → dashboard_cam（摄像头模式，有真 3D 框）；"
+        "推流/网关/9000 → gateway；巡检守护 → patrol；语音助手/你自己 → voice；"
+        "预览/8080/摄像头预览 → preview。\n"
+        "- 【舵机/云台不会执行】舵机云台硬件尚未接入。用户提到舵机/云台时，"
+        "直接回答\"舵机云台还没接入，需要等 ESP32 接上 USB 后才能用\"，"
+        "**绝对不要调用任何 control_service** —— 实测曾有把\"舵机\"误当成 voice 服务"
+        "从而把 Agent 自己关掉的严重事故。\n"
         "- 【失败必须如实说·最高优先级】工具返回 `success:false` 或带 `error` 字段时，"
         "必须明确告诉用户「操作失败」并转述原因，**绝对不能说成已经完成**。"
         "实测出现过把 `rejected_by_guard` 说成「LED 已关闭」的情况——工具明明拒绝了，"
@@ -1674,6 +1945,15 @@ int main(int argc, char** argv) {
         "- 【地址必须照抄工具的 url 字段】用户问\"怎么访问/地址是什么\"时，"
         "直接用 control_service 返回的 `url`。**禁止说 localhost 或 127.0.0.1** —— "
         "用户是在自己电脑上开浏览器，localhost 指向他自己的机器，必然打不开。\n"
+        "- 【启动服务后必须报地址】用户说\"打开预览/打开看板\"，工具返回成功后，"
+        "你必须把 `url` 字段里的完整地址念给用户（如 http://10.21.3.103:8080/），"
+        "**不要只说\"已启动\"就完事** —— 用户不知道端口也不知道 IP，说了等于没说。"
+        "preview 还有 `endpoints` 字段，可顺带说 /stream（连续流）和 /snapshot（单帧）。\n"
+        "- 【摄像头冲突要如实说】用户要求打开 preview 或 gateway 时，若工具返回 "
+        "`error: camera_busy`，说明另一个服务正占着同一个摄像头。"
+        "必须告诉用户「打不开，因为 X 正占着摄像头」，并说明要先关掉它"
+        "（control_service name=X action=stop）。**绝对不要自作主张去停那个服务** —— "
+        "7×24 推流断掉用户是看不见的。\n"
         "- 【只调必需的工具】用户只说\"打开/关闭某个服务\"时，只调 control_service 这一个，"
         "**不要顺带调 get_system_health / get_led_status** —— 那会让用户多等十几秒，"
         "而且答案里塞满他没问的温度和灯状态。\n"
@@ -1818,14 +2098,14 @@ int main(int argc, char** argv) {
         "type": "function",
         "function": {
           "name": "control_service",
-          "description": "启停或查询板载子系统服务。dashboard=车辆实时检测看板(HTTP :8090, 车辆实时检测); gateway=TCP推流网关(:9000); patrol=巡检守护(快层); voice=语音交互网关(就是我自己)。注意: 启动 dashboard 或 gateway 会占用 NPU, 导致我之后的响应明显变慢",
+          "description": "启停或查询板载子系统服务。dashboard=车辆检测看板-视频模式(HTTP :8090, 读mp4不占摄像头); dashboard_cam=车辆检测看板-摄像头模式(HTTP :8090, 真3D框+BEV雷达); gateway=TCP推流网关(:9000); preview=摄像头实时预览(HTTP :8080); patrol=巡检守护(快层); voice=语音交互网关(就是我自己)。注意: dashboard与dashboard_cam同用8090不能同时开; preview/gateway/dashboard_cam 抢同一个摄像头不能同时开; 启动 dashboard/dashboard_cam/gateway/preview 会占用 NPU, 导致我之后的响应变慢",
           "parameters": {
             "type": "object",
             "properties": {
               "name": {
                 "type": "string",
-                "enum": ["dashboard", "gateway", "patrol", "voice"],
-                "description": "服务名: dashboard(看板:8090) / gateway(推流:9000) / patrol(巡检守护) / voice(语音网关, 即我自己)"
+                "enum": ["dashboard", "dashboard_cam", "gateway", "preview", "patrol", "voice"],
+                "description": "服务名: dashboard(看板-视频mp4:8090) / dashboard_cam(看板-摄像头:8090) / gateway(推流:9000) / preview(摄像头预览:8080) / patrol(巡检守护) / voice(语音网关, 即我自己)"
               },
               "action": {
                 "type": "string",

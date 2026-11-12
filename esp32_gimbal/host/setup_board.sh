@@ -123,18 +123,23 @@ if [ "$HAS_PORT" = "1" ]; then
     echo "环境就绪 ✅"
     echo ""
     echo "跑追踪："
-    echo "  $PY $HERE/gimbal_tracker.py --port $PORT --class person --img-w 1280 --img-h 720"
+    echo "  $PY $HERE/gimbal_tracker.py --port $PORT --class person --img-w 1280 --img-h 720 --invert-pan"
     echo ""
     echo "调参建议：先加 --dry-run 只算不发，确认角度方向对了再真正驱动舵机。"
+    echo ""
+    echo "注意 --invert-pan：2026-11-03 上板实测本套硬件的 pan 方向是反的"
+    echo "  判据：pan 指令 -15/0/+15 三点采样，画面里 person 的 cx 分别是"
+    echo "        747 / 879 / 947 px  →  云台右转靶也右移 = 正反馈，必须翻转"
+    echo "  不加这个参数的表现：pan 几秒内冲到 ±90° 顶死限位（dry-run 可复现）"
     if [ "$DO_RUN" = "1" ]; then
         echo ""
         echo "================================================================"
         echo "启动追踪（Ctrl-C 结束）"
         echo "================================================================"
         exec "$PY" "$HERE/gimbal_tracker.py" --port "$PORT" \
-             --class person --img-w 1280 --img-h 720
+             --class person --img-w 1280 --img-h 720 --invert-pan
     fi
 else
-    echo "还差一步：把 ESP32 插到板子的 USB 口 ⚠️"
+echo "还差一步：把 ESP32 的 COM 口接到板子 USB HOST（CH343 → /dev/ttyUSB0）⚠️"
 fi
 echo "================================================================"
