@@ -1,0 +1,26 @@
+# ESP-IDF 构建产物
+build/
+sdkconfig
+sdkconfig.old
+*.bin
+*.elf
+*.map
+managed_components/
+dependencies.lock
+
+# 调试截图（从板子/摄像头回拉的临时文件，无长期价值）
+# ⚠️ 注意：docs/images/ 是正式证据图，必须排除在忽略规则外
+esp32_gimbal/_*.jpg
+_*.jpg
+*.jpg
+!docs/images/*.jpg
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store

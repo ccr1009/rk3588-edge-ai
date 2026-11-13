@@ -1,5 +1,28 @@
 # ESP32-S3 舵机云台 — RK3588 视觉追踪执行器
 
+![云台视觉追踪闭环实时画面](docs/images/tracking_closed_loop.jpg)
+
+*板端真实运行截图（`http://<board-ip>:8080`）：顶部 HUD 显示
+`NPU 16.8 ms + Dec 1.3 ms | 26.9 FPS | Gimbal P-90.0 T+0.0 | TRACK | objs 1`
+—— 绿色十字准星对准目标，蓝色 3D 线框贴着人被检出（8.2m），
+右上 BEV 雷达显示目标距离 1.8m。**这是 RK3588 检测 + ESP32 舵机驱动的真闭环**，
+不是仿真。*
+
+> 状态栏里的 `TRACK` / `SATURATED` 是云台状态：
+> **TRACK** = 正在跟踪目标；**SATURATED** = 舵机已顶到软限位（见下方"角度定义"）。
+
+<details>
+<summary>另一张：舵机顶到限位时的画面（<code>SATURATED</code>）</summary>
+
+![舵机饱和](docs/images/servo_saturated.jpg)
+
+*`Gimbal P+90.0 T+0.0 | SATURATED | objs 0` —— pan 已转到 +90° 上限，
+目标跑出画面，说明软限位生效。*
+
+</details>
+
+---
+
 > **状态（2026-11-03 深夜）**：
 > - ✅ 固件已烧录到真实 ESP32-S3 N16R8（PC 上枚举为 COM5），硬件自检 5/5 通过
 > - ✅ 闭环逻辑 18 项自测全绿（PC 与**板端 Python 3.9** 都跑过）
