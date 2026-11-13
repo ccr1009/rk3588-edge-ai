@@ -162,8 +162,15 @@ echo ""
 echo "══════════════════════════════════════════════"
 echo " 完成"
 echo "══════════════════════════════════════════════"
-for pair in "origin/main:rk3588-edge-ai" "stereo3d/main:stereo3d-rk3588" "gimbal/main:esp32-gimbal-rk3588"; do
-    ref="${pair%%:*}"; name="${pair##*:}"
-    sha=$(git rev-parse --short "$ref" 2>/dev/null || echo "?")
-    printf "  %-24s %s\n" "$name" "$sha"
+# 汇总：主仓库用本地 main 的 SHA；子树用 split 出来的 SHA。
+# ⚠️ 不要用 $remote/main —— dry-run 时不会 fetch，读到的是过期 ref。
+printf "  %-24s %s\n" "rk3588-edge-ai" "$(git rev-parse --short main 2>/dev/null || echo '?')"
+for pair in "stereo3d:stereo3d-rk3588" "esp32_gimbal:esp32-gimbal-rk3588"; do
+    prefix="${pair%%:*}"; name="${pair##*:}"
+    tmpsub="_sync_sum_$$"
+    git branch -D "$tmpsub" >/dev/null 2>&1
+    sha=$(git subtree split --prefix="$prefix" -b "$tmpsub" 2>/dev/null | tail -1)
+    git branch -D "$tmpsub" >/dev/null 2>&1
+    printf "  %-24s %s\n" "$name" "${sha:0:7}"
 done
+
