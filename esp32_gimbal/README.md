@@ -63,6 +63,70 @@
 
 ---
 
+## 快速开始
+
+### 前提
+
+| 项 | 需要 |
+|:---|:---|
+| 主控板 | RK3588（本项目在 EVM3588-B 验证），跑视觉检测 |
+| MCU | **ESP32-S3 N16R8**（ESP-IDF v6.0.1） |
+| 执行器 | SG90 舵机（Pan 接 GPIO4，Tilt 接 GPIO5） |
+| 接线 | 舵机红→**USB转TTL 的 5V**（★不能接板子 `5Vin`，那是输入脚）；三者共地 |
+| 串口 | ESP32 的 USB 口接电脑/板子，枚举为 `/dev/ttyACM0` 或 COM 口 |
+
+### 编译固件
+
+```bash
+# 需要先装 ESP-IDF v6.0.1 并 source export.sh
+cd esp32-gimbal-rk3588
+idf.py build
+idf.py -p COM5 flash monitor        # Windows
+idf.py -p /dev/ttyACM0 flash monitor  # Linux
+```
+
+或用仓库自带的一键脚本（Windows，自动躲开 cmake 中文路径崩溃）：
+
+```powershell
+pwsh -File build.ps1 -Flash
+```
+
+### 验证硬件（不依赖 RK3588）
+
+```bash
+# 自动找 COM 口（双 Type-C 板不用猜）
+python host/esp32_find.py
+
+# 固件自检命令（在 idf.py monitor 里敲）
+R    # 回环自测：引脚开输入+边沿中断+esp_timer 微秒时间戳，打印 pw_avg/per_avg
+D    # 三角波演示
+P 45 0   # 设 pan=45° tilt=0°，应回读 pw_avg≈2000us per_avg≈20000us
+
+# 闭环逻辑自测（无需硬件，18 项）
+python host/test_loopback.py
+```
+
+### 跑视觉追踪闭环（需要 RK3588 + 9000 网关）
+
+```bash
+# 板子上，先确保 9000 视觉网关在跑
+systemctl start edgevision
+
+# 板端跑追踪（会自动起 8080 网页预览）
+bash host/run_gimbal_tracking.sh /dev/ttyACM0
+# 浏览器 http://<board-ip>:8080/
+```
+
+> ⚠️ **pan 方向实测是反的**：必须加 `--invert-pan`（两次独立标定确认，见 8.6.1）。
+
+### 验收
+
+```bash
+python host/verify_closed_loop.py    # 记录 pan/tilt 轨迹，给判据
+```
+
+---
+
 ## 一、架构
 
 ```
@@ -88,18 +152,40 @@
 
 ## 二、目录
 
+### 固件（ESP-IDF 工程）
+
 | 路径 | 作用 |
 |:---|:---|
 | `main/gimbal_main.c` | ESP-IDF 固件：LEDC PWM + 串口协议 + 软限位 + 缓动 |
 | `CMakeLists.txt` / `main/CMakeLists.txt` / `sdkconfig.defaults` | IDF 工程 |
 | `build.ps1` | Windows 构建/烧录脚本（已处理本机 IDF 环境问题，见第四节） |
-| `host/gimbal_control.py` | **控制律与协议解析（纯函数）**，被 tracker 和测试共用 |
-| `host/gimbal_probe.py` | 连通性与机械限位自检（**先跑这个**） |
-| `host/gimbal_tracker.py` | 视觉追踪闭环主程序 |
-| `host/fake_gateway.py` | 模拟 9000 网关（无板子时验证） |
-| `host/test_loopback.py` | 闭环逻辑自测（18 项） |
-| `host/e2e_check.py` | 端到端联调（假网关 + 真串口） |
-| `host/results_*.txt` | 实测结果留档（含 `results_real_closed_loop.txt` 真闭环） |
+
+### `host/` 核心工具（会日常用到）
+
+| 文件 | 作用 |
+|:---|:---|
+| `gimbal_control.py` | **控制律与协议解析（纯函数）**，被 tracker 和测试共用 |
+| `gimbal_tracker.py` | 视觉追踪闭环主程序（读 9000 BBox → 算角度 → 发串口） |
+| `gimbal_preview.py` | MJPEG 网页预览（云台状态的 8080 推流） |
+| `w4_edgevision_gimbal_preview.cpp` | **一体化**：NPU 检测 + 9000 推流 + 8080 预览 + 云台，单进程 26.8 FPS |
+| `verify_closed_loop.py` | 闭环现场验收（记录 pan/tilt 轨迹并给判据） |
+| `test_loopback.py` | 闭环逻辑自测（18 项，无需硬件） |
+| `esp32_find.py` | 自动找 ESP32 的 COM 口（双 Type-C 板不用猜） |
+| `esp32_reset.py` / `usb_reset.sh` | USB 复位（设备卡死时用） |
+| `scan_pins.py` | 引脚扫描（找可用 GPIO） |
+| `calibrate_*.py` | 三个标定脚本（方向 / 增益 / tilt） |
+| `servo_bringup.py` | 舵机首次上电激活 |
+| `gimbal_bridge.py` | 串口桥接中转 |
+| `run_gimbal_tracking.sh` | 一键起追踪 + 预览 |
+| `uvc_recover.sh` | 摄像头复位（unbind/bind uvcvideo） |
+
+### `host/archive/probes/`（53 个一次性探针，仅留档）
+
+调试期写的诊断脚本：`diag_*.py`、`baud_*.py`、`catch_boot*.py`、`test_*.py`、
+`_*.py`（下划线前缀）、`power_diag.py` 等。
+
+**它们不是产品代码**，结论已固化进本文档和 `docs/TROUBLESHOOTING.md`。
+留着是因为能追溯"每个坑当时是怎么查的"，但**不需要运行，也不需要维护**。
 
 ---
 
