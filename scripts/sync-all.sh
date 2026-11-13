@@ -159,9 +159,27 @@ sync_subtree() {
     echo ""
     echo "──── $label ────"
 
-    # 一致性检查：主仓库的子树 split 结果 vs 独立仓库的 main
-    # ⚠️ 必须用 split 出来的子树比，不能用主仓库 main 直接比 ——
-    #    main 里含整个项目（lab/ deploy/ docs/ …），跟独立仓库必然"不一致"。
+    # ⚠️ 性能关键：先看目录 tree 有没有变，变了才跑 subtree split。
+    #   `git subtree split` 要遍历全部历史重建提交链，本仓库实测 50s/次。
+    #   但 `git rev-parse main:$prefix` 只读一个 tree 对象，毫秒级。
+    #   日常"改主项目、子项目没动"是最常见的情况，这一层能省 100 秒。
+    local cur_tree
+    cur_tree=$($GIT rev-parse "main:$prefix" 2>/dev/null)
+    if [ -z "$cur_tree" ]; then
+        echo "  ✗ 取不到 main:$prefix 的 tree"; return 1
+    fi
+
+    $GIT fetch "$remote" >/dev/null 2>&1
+    local remote_tree
+    remote_tree=$($GIT rev-parse "refs/remotes/$remote/main^{tree}" 2>/dev/null)
+
+    if [ -n "$remote_tree" ] && [ "$cur_tree" = "$remote_tree" ]; then
+        echo "  ✓ 无变化（tree ${cur_tree:0:7} 与 $remote/main 相同），跳过"
+        return 0
+    fi
+
+    # 目录确实变了，才付出 split 的代价
+    echo "  → 目录有改动，切分子树（遍历历史，约 50s）..."
     local tmpsub="_sync_check_$$"
     $GIT branch -D "$tmpsub" >/dev/null 2>&1
     local subsha
@@ -172,28 +190,42 @@ sync_subtree() {
         echo "  ✗ 子树切分失败: $prefix"; return 1
     fi
 
-    # 拉取远端最新，确保比较的是真实远端状态
-    $GIT fetch "$remote" >/dev/null 2>&1
+    local sub_tree
+    sub_tree=$($GIT rev-parse "$subsha^{tree}" 2>/dev/null)
 
-    local diff
-    diff=$($GIT diff --stat "$subsha" "$remote/main" 2>/dev/null)
-    if [ -n "$diff" ]; then
-        echo "  ⚠ 主仓库 $prefix/ 子树与 $remote/main 内容不一致："
+    # 内容一致性检查：split 出来的内容 vs 远端
+    if [ -n "$remote_tree" ] && [ "$sub_tree" != "$remote_tree" ]; then
+        local diff
+        diff=$($GIT diff --stat "$subsha" "$remote/main" 2>/dev/null)
+        echo "  ⚠ 主仓库 $prefix/ 与 $remote/main 内容不一致："
         echo "$diff" | head -8 | sed 's/^/      /'
         echo ""
         echo "  这通常意味着独立仓库被直接改过（本脚本约定：只改主仓库）。"
         echo "  若确认以主仓库为准，执行："
-        echo "      $GIT subtree push --prefix=$prefix $remote main --force"
+        echo "      git subtree push --prefix=$prefix $remote main --force"
         return 1
     fi
-    echo "  ✓ 内容一致（本地子树 = $remote/main）"
 
-    run $GIT subtree push --prefix="$prefix" "$remote" main || {
-        echo "  ✗ 推送失败（可能是快进不了）"
-        echo "    查看差异: $GIT log $remote/main..main --oneline"
-        return 1
-    }
-    return 0
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "    [dry-run] git subtree push --prefix=$prefix $remote main"
+        echo "    （内容有变化，实际执行约需 60s）"
+        return 0
+    fi
+
+    echo "  → 推送中（subtree 需遍历历史，约 60s）..."
+    $GIT subtree push --prefix="$prefix" "$remote" main 2>&1 \
+        | grep -vE '^[0-9]+/[0-9]+ \(' \
+        | sed 's/^/    /'
+
+    $GIT fetch "$remote" >/dev/null 2>&1
+    local now_tree
+    now_tree=$($GIT rev-parse "refs/remotes/$remote/main^{tree}" 2>/dev/null)
+    if [ "$now_tree" = "$sub_tree" ]; then
+        echo "  ✓ 推送成功（远端 tree = ${sub_tree:0:7}）"
+        return 0
+    fi
+    echo "  ✗ 推送后远端 tree 是 ${now_tree:0:7}，期望 ${sub_tree:0:7}"
+    return 1
 }
 
 case " $REPOS " in
