@@ -4,7 +4,7 @@
 
 ## 正文位置
 
-**[`edgevision-rk3588/docs/TROUBLESHOOTING.md`](edgevision-rk3588/docs/TROUBLESHOOTING.md)** ← 唯一正文，47 条，2001 行
+**[`rk3588-edge-ai/docs/TROUBLESHOOTING.md`](rk3588-edge-ai/docs/TROUBLESHOOTING.md)** ← 唯一正文，47 条，2001 行
 
 追加新条目、修改已有条目，**都改上面那份**。本文件保持简短，避免出现两份不同步的副本。
 
@@ -25,4 +25,4 @@
 | 九、MPP / NPU / 系统集成 | 17~28 |
 | 十、语音链路与端侧 Agent 编排 | 29~47 |
 
-相关文档：技术数据见 [`BENCHMARKS.md`](edgevision-rk3588/docs/BENCHMARKS.md)，项目总纲见 [`AGENTS.md`](AGENTS.md)。
+相关文档：技术数据见 [`BENCHMARKS.md`](rk3588-edge-ai/docs/BENCHMARKS.md)，项目总纲见 [`AGENTS.md`](AGENTS.md)。

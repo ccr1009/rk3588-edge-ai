@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Calibration Dataset Preparation for Post-Training Quantization (PTQ)
+# rk3588-edge-ai: Calibration Dataset Preparation for Post-Training Quantization (PTQ)
 # ==============================================================================
 import os
 import cv2

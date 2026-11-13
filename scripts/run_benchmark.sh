@@ -5,7 +5,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 echo "=================================================================="
-echo "EdgeVision-RK3588: Running Comprehensive Benchmarks"
+echo "rk3588-edge-ai: Running Comprehensive Benchmarks"
 echo "=================================================================="
 
 echo "--> [1/2] Running Precision Benchmark (ONNX FP32 vs RKNN INT8 Simulator)..."

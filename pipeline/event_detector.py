@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Tripwire / Line-Crossing & Intrusion Event Detector
+# rk3588-edge-ai: Tripwire / Line-Crossing & Intrusion Event Detector
 # ==============================================================================
 import os
 import json

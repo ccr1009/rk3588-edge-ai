@@ -1,4 +1,4 @@
-# EdgeVision-RK3588: 板子到货后部署与交接清单
+# rk3588-edge-ai: 板子到货后部署与交接清单
 
 > **面向研一同学的保姆级实机操作手册**  
 > 当您的 RK3588 开发板（如友善 NanoPC-T6、Firefly ROC-RK3588S、香橙派 OrangePi 5 Plus 等）到货后，请按照本清单依次执行，即可无缝将 PC 仿真代码迁移到 NPU 真机上。
@@ -35,8 +35,8 @@ sudo apt-get install -y git cmake g++ build-essential python3-pip python3-dev ff
 ### 2.1 获取代码仓库
 在板端克隆本项目：
 ```bash
-git clone <your-repo> edgevision-rk3588
-cd edgevision-rk3588
+git clone <your-repo> rk3588-edge-ai
+cd rk3588-edge-ai
 ```
 
 ### 2.2 安装板端轻量运行时 (rknn-toolkit-lite2)

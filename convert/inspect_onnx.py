@@ -9,7 +9,7 @@ import sys
 import onnx
 from onnx import numpy_helper
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else r"D:/a研究生/项目/rk3588项目/edgevision-rk3588/data/models/yolov8n.onnx"
+MODEL = sys.argv[1] if len(sys.argv) > 1 else r"D:/a研究生/项目/rk3588项目/rk3588-edge-ai/data/models/yolov8n.onnx"
 
 m = onnx.load(MODEL)
 g = m.graph

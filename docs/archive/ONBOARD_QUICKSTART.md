@@ -64,7 +64,7 @@ ls -l /dev/rga
 
 ```bash
 # 1. 在 PC (WSL2) 终端中一键打包并发送到板端
-cd /home/yankai/projects/edgevision-rk3588
+cd /home/yankai/projects/rk3588-edge-ai
 ./deploy/build_rk3588.sh
 
 # 2. 将编译产物与模型拷贝至板端
@@ -77,8 +77,8 @@ scp data/models/yolov8n_rk3588_i8.rknn root@<板卡IP>:/root/data/models/
 ```bash
 # 在板端执行
 sudo apt update && sudo apt install -y cmake build-essential libopencv-dev
-git clone https://github.com/your-repo/edgevision-rk3588.git
-cd edgevision-rk3588/deploy/cpp
+git clone https://github.com/your-repo/rk3588-edge-ai.git
+cd rk3588-edge-ai/deploy/cpp
 mkdir build && cd build
 cmake -DCROSS_COMPILE_RK3588=ON ..
 make -j8

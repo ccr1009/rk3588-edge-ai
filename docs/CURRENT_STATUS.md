@@ -66,7 +66,7 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
   - TF 卡已挂 `/mnt/tf`(开机自动挂载)
 
 - **ESP32-S3 SG90 云台执行器(2026-11-03 首次跑通)**:
-  - 工程:`edgevision-rk3588/esp32_gimbal/`(ESP-IDF v6.0.1,非 Arduino),板上固件 `esp32_gimbal.bin` 211,568 B
+  - 工程:`rk3588-edge-ai/esp32_gimbal/`(ESP-IDF v6.0.1,非 Arduino),板上固件 `esp32_gimbal.bin` 211,568 B
   - **实测**:`P 45 0` → 回读 `pw_avg=2000us per_avg=20000us`(理论 2000us,逐位对得上);
     连续 ±35° 摆动 18 秒 24 条命令全部 `OK`;舵机上电即自锁
   - **接线**(已验证可用):
@@ -111,7 +111,7 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
 
 ### 阶段一交付物:【EdgeVision 工业级全链路边缘网关 V1.0】
 - 源码:`/root/lab/w4_edgevision_gateway.cpp`(本地 `w4_edgevision_gateway.cpp`)
-- 上位机:`D:\a研究生\项目\rk3588项目\edgevision-rk3588\lab\pc_client_viewer.py`（**在 lab 子目录里,不在项目根**）
+- 上位机:`D:\a研究生\项目\rk3588项目\rk3588-edge-ai\lab\pc_client_viewer.py`（**在 lab 子目录里,不在项目根**）
 - 实测指标:
   - 视觉输入:真实 USB 摄像头 `/dev/video81`(720P -> 640x640 预处理)
   - 核心算力:RK3588 3个物理 NPU 核心真硬绑定并发推理(`yolov8n_rk3588_i8.rknn`)

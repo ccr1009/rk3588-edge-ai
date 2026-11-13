@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Latency Tracer & Performance Profiler
+# rk3588-edge-ai: Latency Tracer & Performance Profiler
 # ==============================================================================
 import time
 import threading

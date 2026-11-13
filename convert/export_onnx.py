@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: YOLOv8 ONNX Exporter
+# rk3588-edge-ai: YOLOv8 ONNX Exporter
 # - Exports PyTorch YOLOv8n to ONNX with opset 12 (Rockchip NPU recommended)
 # - Validates exported ONNX with ONNXRuntime test inference
 # ==============================================================================

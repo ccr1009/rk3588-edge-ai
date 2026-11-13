@@ -67,3 +67,6 @@ deliverables/
 # 云台工程的临时截图（调试时从板子回拉的，无代码价值）
 esp32_gimbal/_*.jpg
 esp32_gimbal/host/results_*.txt
+
+# 目录改名时的文件备份（2026-11-13）
+_rename_backup_*/

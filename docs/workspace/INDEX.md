@@ -92,11 +92,11 @@ export BOARD_PASSWORD=<板子密码>   # 仅 setup_board_ssh.py 需要
 
 ```bash
 # 1. 克隆仓库
-git clone git@github.com:ccr1009/EdgeVision-Pro.git edgevision-rk3588
+git clone git@github.com:ccr1009/EdgeVision-Pro.git rk3588-edge-ai
 
 # 2. 把镜像复制回根目录（如果要重建完整工作区）
-cp edgevision-rk3588/docs/workspace/*.md .
-cp -r edgevision-rk3588/tools ./_tools
+cp rk3588-edge-ai/docs/workspace/*.md .
+cp -r rk3588-edge-ai/tools ./_tools
 
 # 3. 板端代码：本仓库 lab/ learn/ 就是全部源码，按各 README 部署
 ```

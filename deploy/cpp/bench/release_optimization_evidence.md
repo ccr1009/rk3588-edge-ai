@@ -2,7 +2,7 @@
 
 > 日期：2026-10-25 ｜ 板卡：EVM3588-B（RK3588，8 核 4×A76 + 4×A55，Debian 11，g++ 10.2.1，cmake 3.18.4）
 > 采集：Lead 复核板上原始日志（`/root/optim_ab/`、`/root/lead_build_check/`）后整理。
-> 交叉验证：`edgevision-rk3588/docs/BENCHMARKS.md` 2.8 节、`docs/TROUBLESHOOTING.md` 第 24 条。
+> 交叉验证：`rk3588-edge-ai/docs/BENCHMARKS.md` 2.8 节、`docs/TROUBLESHOOTING.md` 第 24 条。
 
 ---
 
@@ -24,7 +24,7 @@ CXX_FLAGS = -std=gnu++17                       ← 没有任何 -O 标志，等�
 
 ---
 
-## 2. CMakeLists.txt 改动清单（`edgevision-rk3588/deploy/cpp/CMakeLists.txt`，206 → 222 行）
+## 2. CMakeLists.txt 改动清单（`rk3588-edge-ai/deploy/cpp/CMakeLists.txt`，206 → 222 行）
 
 | 行号 | 改动 |
 | :--- | :--- |

@@ -1,4 +1,4 @@
-# EdgeVision-RK3588: 端侧多路智能视频分析盒子
+# rk3588-edge-ai: 端侧多路智能视频分析盒子
 
 > ⚠️ **本文档是项目早期（2026 年 8 月，板子到货前）的 x86 仿真阶段设计稿**，其中
 > 「真机到货无缝切换」「跑满 6 TOPS 峰值」等表述属于当时的目标设定，**不是实测结论**。
@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey.svg)](#)
 
 ## 1. 项目简介
-**EdgeVision-RK3588** 是一套专为瑞芯微 RK3588 旗舰端侧 AI 芯片量身打造的多路实时视频分析框架。
+**rk3588-edge-ai** 是一套专为瑞芯微 RK3588 旗舰端侧 AI 芯片量身打造的多路实时视频分析框架。
 在硬件真机到货前，本项目在 **WSL2 (Ubuntu 22.04 LTS / x86_64)** 环境下完成了完整的算法转换、PTQ INT8 量化仿真、多线程生产者-消费者流水线构建、纯 NumPy 版 ByteTrack 目标跟踪器实现以及 C++ 交叉编译骨架工程。
 
 系统具备 **"x86 仿真可跑，真机到货无缝切换"** 的工程特性：在 x86 上使用 `ONNXRuntimeBackend` 进行全流程仿真；当板卡就绪后，切换为 `RKNNBackend` / C++ 原生运行，即可瞬间跑满板载 6 TOPS 峰值 NPU 算力。
@@ -55,7 +55,7 @@ graph LR
 ## 3. 目录组织结构
 
 ```text
-edgevision-rk3588/
+rk3588-edge-ai/
 ├── convert/                    # 模型转换与量化模块
 │   ├── export_onnx.py          # YOLOv8n -> ONNX (opset 12, 静态尺寸 640x640)
 │   ├── prepare_calib.py        # PTQ 校准图像抽帧与校验 (50~100 张)
@@ -112,8 +112,8 @@ edgevision-rk3588/
 
 ### 4.1 环境初始化 (1 分钟)
 ```bash
-git clone <your-repo> edgevision-rk3588
-cd edgevision-rk3588
+git clone <your-repo> rk3588-edge-ai
+cd rk3588-edge-ai
 
 # 执行自动化配境脚本 (自动配置 Python 3.10 venv 并安装 rknn-toolkit2 官方 wheel)
 bash scripts/setup_env.sh

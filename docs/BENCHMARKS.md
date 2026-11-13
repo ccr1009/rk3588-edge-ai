@@ -1,4 +1,4 @@
-# EdgeVision-RK3588: 性能基准与精度评估报告
+# rk3588-edge-ai: 性能基准与精度评估报告
 
 > **重要声明**：
 > 本项目严格遵循工程求真原则，所有数字都标注了**测量边界**（测的到底是什么）。
@@ -736,10 +736,10 @@ cap.set(cv::CAP_PROP_FPS, 30);   // ★ 必须显式设置，否则默认协商�
 
 ```bash
 # 多步演示（含时延测量与完整 trace）
-python edgevision-rk3588/lab/agent_multistep_demo.py --out-dir _workbench/test_results
+python rk3588-edge-ai/lab/agent_multistep_demo.py --out-dir _workbench/test_results
 
 # 单条用例（如条件决策 T08）
-python edgevision-rk3588/lab/agent_regression_test.py --only T08 --out-dir _workbench/test_results
+python rk3588-edge-ai/lab/agent_regression_test.py --only T08 --out-dir _workbench/test_results
 ```
 
 结果在 `_workbench/test_results/<时间戳>/trace.json` 的 `act2_agent.wall_s` 与 `results.json` 的
@@ -770,7 +770,7 @@ CXX_FLAGS = -std=gnu++17                      ← 没有任何 -O 标志，等�
 **后果**：项目此前记录的全部 CPU 侧耗时（MJPG 软解 7.76 ms、letterbox、DFL 解码 3.09 ms、
 CSC 51~65 ms）都是在**无优化构建**下测出来的，是悲观值。
 
-#### 2.8.2 改动（`edgevision-rk3588/deploy/cpp/CMakeLists.txt`，222 行）
+#### 2.8.2 改动（`rk3588-edge-ai/deploy/cpp/CMakeLists.txt`，222 行）
 
 | 行号 | 改动 |
 | :--- | :--- |
@@ -917,7 +917,7 @@ done
 #### 2.9.1 为什么要做
 
 2.5 节实测：`cv::imencode(".jpg", ..., quality=80)` 耗时 **7.1~7.2 ms，占单帧 14%**
-（`edgevision-rk3588/lab/edgevision_preview_real.cpp:346-347`）。既然 MPP **硬解**能做到
+（`rk3588-edge-ai/lab/edgevision_preview_real.cpp:346-347`）。既然 MPP **硬解**能做到
 p50 1.03 ms（7.6× 于软解，见 2.6 节），**硬编**理论上也该快——路线图里因此写了"MPP 硬编省 7.2ms"。
 
 #### 2.9.2 结论先行
@@ -1395,7 +1395,7 @@ EDGEVISION_BOARD_HOST=<board-ip> python scripts/verify_bev_dashboard.py \
 ```powershell
 # PC 侧(Windows)
 $py = "C:\Users\<user>\.espressif\python_env\idf6.0_py3.13_env\Scripts\python.exe"
-$host = "D:\a研究生\项目\rk3588项目\edgevision-rk3588\esp32_gimbal\host"
+$host = "D:\a研究生\项目\rk3588项目\rk3588-edge-ai\esp32_gimbal\host"
 
 # 1) 按 VID/PID 自动找 COM 口(双 Type-C 板不用猜)
 & $py "$host\esp32_find.py"
@@ -1520,7 +1520,7 @@ if dx == 0.0 and dy == 0.0:
 
 ```powershell
 $py = "C:\Users\<user>\.espressif\python_env\idf6.0_py3.13_env\Scripts\python.exe"
-$h  = "D:\a研究生\项目\rk3588项目\edgevision-rk3588\esp32_gimbal\host"
+$h  = "D:\a研究生\项目\rk3588项目\rk3588-edge-ai\esp32_gimbal\host"
 
 # 闭环现场验收（自动给判据，不用肉眼看滚屏）
 & $py "$h\verify_closed_loop.py" --port COM6 --host <board-ip> --seconds 20 --mode absolute

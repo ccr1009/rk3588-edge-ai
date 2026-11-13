@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: x86 RKNN Simulator Precision & Consistency Evaluator
+# rk3588-edge-ai: x86 RKNN Simulator Precision & Consistency Evaluator
 # Evaluates:
 # 1. ONNX FP32 (ONNXRuntime) vs RKNN INT8 (RKNN Simulator on x86)
 # 2. Tensor-level Metrics: Cosine Similarity, Max Absolute Error, Mean Absolute Error (MAE)
@@ -100,7 +100,7 @@ def decode_yolov8_output(raw_out, conf_thresh=0.25, iou_thresh=0.45):
 
 def run_evaluation():
     print("==================================================================")
-    print("EdgeVision-RK3588: x86 RKNN Simulator vs ONNX FP32 Precision Eval")
+    print("rk3588-edge-ai: x86 RKNN Simulator vs ONNX FP32 Precision Eval")
     print("==================================================================")
 
     # 1. Initialize ONNXRuntime session
@@ -219,7 +219,7 @@ def run_evaluation():
     ]
     summary_str = tabulate(summary_data, headers=summary_headers, tablefmt="github")
 
-    report_content = f"""# EdgeVision-RK3588: x86 RKNN 仿真器量化精度评估报告
+    report_content = f"""# rk3588-edge-ai: x86 RKNN 仿真器量化精度评估报告
 
 > **测试平台**: WSL2 (Ubuntu 22.04 LTS / x86_64)  
 > **对比模型**: YOLOv8n ONNX (FP32) vs YOLOv8n RKNN (INT8 PTQ)  

@@ -7,7 +7,7 @@
 
 ---
 
-## 1. 改造摘要 (全部在 edgevision-rk3588/lab/rkllm_embodied_agent.cpp)
+## 1. 改造摘要 (全部在 rk3588-edge-ai/lab/rkllm_embodied_agent.cpp)
 
 | # | 改造点 | 落点 (行号为最终 961 行版) |
 |---|---|---|
@@ -84,7 +84,7 @@ BUILD_EXIT=0
 
 ## 5. PC 侧 12 条回归
 
-命令: `python edgevision-rk3588/lab/agent_regression_test.py --with-faults --timeout 240 --out-dir _workbench/test_results --bin /root/rkllm_deploy/rkllm_embodied_agent_p0_t6`
+命令: `python rk3588-edge-ai/lab/agent_regression_test.py --with-faults --timeout 240 --out-dir _workbench/test_results --bin /root/rkllm_deploy/rkllm_embodied_agent_p0_t6`
 
 ### 第一轮 (10/12, 结果 `_workbench/test_results/20261025_121945/`)
 

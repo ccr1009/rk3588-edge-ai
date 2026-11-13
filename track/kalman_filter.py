@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Pure NumPy 2D Kalman Filter for Object Bounding Boxes
+# rk3588-edge-ai: Pure NumPy 2D Kalman Filter for Object Bounding Boxes
 # State Vector (8D): [cx, cy, a, h, vx, vy, va, vh]
 # - cx, cy: Center coordinates of the bounding box
 # - a: Aspect ratio (width / height)

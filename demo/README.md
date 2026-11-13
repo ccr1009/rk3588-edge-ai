@@ -43,7 +43,7 @@
 在终端现场演示多车道高速公路场景的流式处理与 NPU 核心轮转调度：
 
 ```bash
-cd ~/projects/edgevision-rk3588
+cd ~/projects/rk3588-edge-ai
 .venv/bin/python scripts/run_bev_gateway_demo.py
 ```
 

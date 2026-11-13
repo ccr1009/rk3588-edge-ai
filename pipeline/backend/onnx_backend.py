@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: x86 ONNXRuntime Inference Backend
+# rk3588-edge-ai: x86 ONNXRuntime Inference Backend
 # ==============================================================================
 import os
 import cv2

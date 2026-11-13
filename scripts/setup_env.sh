@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# EdgeVision-RK3588: Environment Setup Script (WSL2 / Ubuntu 22.04+ / Python 3.10)
+# rk3588-edge-ai: Environment Setup Script (WSL2 / Ubuntu 22.04+ / Python 3.10)
 # ==============================================================================
 set -e
 

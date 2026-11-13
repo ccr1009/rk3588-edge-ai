@@ -13,7 +13,7 @@ agent_regression_test.py —— RK3588 端侧具身 Agent 回归测试器 (PC �
 板子要求: ssh 免密可达 (密钥 C:/Users/15354/.ssh/id_ed25519_rk3588, 别名 rk3588)。
 
 ==========================================================================
- stdout 契约假设 (与 edgevision-rk3588/lab/rkllm_embodied_agent.cpp 对齐)
+ stdout 契约假设 (与 rk3588-edge-ai/lab/rkllm_embodied_agent.cpp 对齐)
 ==========================================================================
 1. 用户回显行:      「👤 [User]: <query>」
 2. 工具调用行:      「⚙️  [Agent 决策] 触发物理硬件工具: <tool_name>」

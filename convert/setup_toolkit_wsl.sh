@@ -8,11 +8,11 @@
 # 为什么把文件拷进 WSL 家目录：
 #   项目路径含中文（/mnt/d/a研究生/...），toolkit 读数据集清单时容易出问题。
 # 用法（在 WSL 里）:
-#   bash /mnt/d/a研究生/项目/rk3588项目/edgevision-rk3588/convert/setup_toolkit_wsl.sh
+#   bash /mnt/d/a研究生/项目/rk3588项目/rk3588-edge-ai/convert/setup_toolkit_wsl.sh
 # ==============================================================================
 set -euo pipefail
 
-WIN_PROJ="/mnt/d/a研究生/项目/rk3588项目/edgevision-rk3588"
+WIN_PROJ="/mnt/d/a研究生/项目/rk3588项目/rk3588-edge-ai"
 WORK="$HOME/edgevision_rknn"
 ENV_DIR="$WORK/env"
 WHL="$WIN_PROJ/3rdparty/wheels/rknn_toolkit2-1.6.0+81f21f4d-cp310-cp310-linux_x86_64.whl"

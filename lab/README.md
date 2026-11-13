@@ -160,7 +160,7 @@
 ## 三、改了代码怎么上线
 
 ```bash
-cd edgevision-rk3588/lab/build
+cd rk3588-edge-ai/lab/build
 ./deploy.sh agent            # 同步 + 编译，不重启
 ./deploy.sh agent --restart  # 同步 + 编译 + 重启语音网关（会等 70s 就绪）
 ./deploy.sh gateway          # 语音网关同理

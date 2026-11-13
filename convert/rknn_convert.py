@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: ONNX to RKNN Converter (RK3588 NPU Target)
+# rk3588-edge-ai: ONNX to RKNN Converter (RK3588 NPU Target)
 # Supports:
 # 1. INT8 Quantization with dataset calibration (PTQ)
 # 2. FP16 (Non-quantized) conversion for precision baseline comparison

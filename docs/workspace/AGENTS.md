@@ -4,12 +4,12 @@
 > 本项目根目录:`D:\a研究生\项目\rk3588项目`
 >
 > **四份核心文档,按这个顺序看**:
-> - `edgevision-rk3588/docs/ARCHITECTURE.md` —— **项目架构总览**(三条技术线 + 共享资源争用 + 关键数字,**讲项目从这里开始**)
-> - `edgevision-rk3588/lab/README.md` —— **源码在哪、哪个文件是活的、怎么上线**(改代码前先看)
-> - `edgevision-rk3588/docs/OPEN_ISSUES.md` —— **未关闭问题清单**(按 A/B/C 分类 + 优先级)。改代码前先看这张表,别重复已有取舍
-> - `edgevision-rk3588/docs/CURRENT_STATUS.md` —— 现在能干什么 + 下一步(**接手先看这份**)
-> - `edgevision-rk3588/docs/BENCHMARKS.md` —— 性能/精度实测数据(含测量口径与局限)
-> - `edgevision-rk3588/docs/TROUBLESHOOTING.md` —— 踩过的坑:现象 → 排查 → 根因 → 解法(面试可当素材)。**遇到新问题必须往这里追加,规则见下方「工作约定」**
+> - `rk3588-edge-ai/docs/ARCHITECTURE.md` —— **项目架构总览**(三条技术线 + 共享资源争用 + 关键数字,**讲项目从这里开始**)
+> - `rk3588-edge-ai/lab/README.md` —— **源码在哪、哪个文件是活的、怎么上线**(改代码前先看)
+> - `rk3588-edge-ai/docs/OPEN_ISSUES.md` —— **未关闭问题清单**(按 A/B/C 分类 + 优先级)。改代码前先看这张表,别重复已有取舍
+> - `rk3588-edge-ai/docs/CURRENT_STATUS.md` —— 现在能干什么 + 下一步(**接手先看这份**)
+> - `rk3588-edge-ai/docs/BENCHMARKS.md` —— 性能/精度实测数据(含测量口径与局限)
+> - `rk3588-edge-ai/docs/TROUBLESHOOTING.md` —— 踩过的坑:现象 → 排查 → 根因 → 解法(面试可当素材)。**遇到新问题必须往这里追加,规则见下方「工作约定」**
 >
 > **专项技术笔记**(`docs/tech_notes/`,按需查阅):
 > - `AGENT_TOOLS.md` —— Agent 7 个硬件工具的契约与设计取舍(**Agent 岗必读**)
@@ -23,7 +23,7 @@
 >
 > **面试准备**(`docs/interview/`):`INTERVIEW_PREP_PLAN.md`(总计划)、`W1-文件IO与进程` ~ `W6-端侧Agent`(分主题)、`高频八股速查.md`
 >
-> 学习路线:`edgevision-rk3588/docs/LEARNING_PLAN_4WEEKS.md`
+> 学习路线:`rk3588-edge-ai/docs/LEARNING_PLAN_4WEEKS.md`
 
 ---
 
@@ -79,7 +79,7 @@
 D:\a研究生\项目\rk3588项目\
 ├── README.md                  ← 工作区使用说明(入口,先看这个)
 ├── AGENTS.md                  ← 本文件(总纲)
-├── edgevision-rk3588\         ← ★ 主项目,唯一 git 仓库(含 stereo3d 双目子目录)
+├── rk3588-edge-ai\         ← ★ 主项目,唯一 git 仓库(含 stereo3d 双目子目录)
 ├── rkllm_deploy\              ← 板上 /root/rkllm_deploy 的本地镜像(runtime + demo)
 ├── rk3588开发板配套资料\       ← 英码官方资料(SDK/镜像/工具/手册,27.5GB,只读)
 ├── _tools\                    ← 本地辅助脚本(体检/定量实验/排查复现链)
@@ -87,10 +87,10 @@ D:\a研究生\项目\rk3588项目\
 └── .workbuddy\                ← AI 会话记忆
 ```
 要点:
-- **双目项目已归一**:代码权威副本在 `edgevision-rk3588/stereo3d/`(已补 `evidence/` 与证据图);
+- **双目项目已归一**:代码权威副本在 `rk3588-edge-ai/stereo3d/`(已补 `evidence/` 与证据图);
   原根目录 `stereo3d-rk3588/` 已移入 `_workbench/stereo3d-rk3588-archive/`,只留标定原图与合成真值图。
 - `_` 前缀 = 非源码、非交付物,清掉不影响项目运行。详见 `_workbench/README.md`、`_tools/README.md`。
-- **根目录不是 git 仓库**,唯一仓库是 `edgevision-rk3588/`。
+- **根目录不是 git 仓库**,唯一仓库是 `rk3588-edge-ai/`。
 
 ## 2. 硬件与环境
 | 项 | 说明 |
@@ -113,7 +113,7 @@ D:\a研究生\项目\rk3588项目\
 - **VSCode 连不上不一定是网络断了**:VSCode 换版本后要下新 commit 的 **CLI(11.5MB) + server(208MB)**,板子(校园网/IPv6 出口)下载会**断流**,留下**大小对但内容全是 `\0`** 的残包 → Remote-SSH 报 `Got bad result from install script`。解法:PC 侧 `curl` 下 `cli-linux-arm64` 和 `server-linux-arm64`,scp 上去手工布局(详见 `docs/TROUBLESHOOTING.md` 第 10 条);已在 PC `settings.json` 设 `"remote.SSH.localServerDownload": "always"` 从根上绕开。
 
 ## 3. 已完成的事(有证据)
-- ✅ 板子自检全过(内存/存储/开机/NPU/驱动),脚本:`edgevision-rk3588/scripts/check_board.sh`(板上 `/root/check_board.sh`)。
+- ✅ 板子自检全过(内存/存储/开机/NPU/驱动),脚本:`rk3588-edge-ai/scripts/check_board.sh`(板上 `/root/check_board.sh`)。
 - ✅ **远程开发环境**:有线 SSH 通,电脑可直接 `ssh root@10.21.3.103` 粘贴命令。
 - ✅ 板上装了 **g++ 10.2.1 / make / cmake**;项目源码传到 **`/root/edgevision/`**。
 - ✅ **真实 NPU 推理跑通**:`edgevision_pro_rknn` 原生编译成功,加载 `yolov8n_rk3588_i8.rknn` 成功。注意它跑的是**合成输入仿真**(3 路 × 100 帧 = 300 帧,输入是整幅灰图),实测 **25.1 FPS 聚合**;纯推理边界的真实单核实测是 **37.19 ms/帧 ≈ 26.9 FPS**(见 `docs/BENCHMARKS.md` 2.2 节,含 p50/p95/p99)。README 声称 150+ 是理想值,**以实测为准**。
@@ -144,7 +144,7 @@ D:\a研究生\项目\rk3588项目\
 - ✅ **双目与双麦多模态传感器调通**:
   - 视觉:Cam 1 `/dev/video81`(已旋钮远焦对焦锐利)+ Cam 2 `/dev/video83`，吃透 CMOS 自动曝光(AE) 15 帧预热收敛原理。
   - 音频:两路独立 USB 麦克风 ALSA 节点 `hw:5,0` 与 `hw:6,0`，实测录制 16000Hz 16-bit PCM 立体声无暇，具备多模态 Edge Agent 视听双全基础！
-- ✅ **板端性能实测与逐层剖析(2026-10-17)**:新增 `edgevision-rk3588/deploy/cpp/bench/`(`bench_npu.cpp` / `bench_multicore.cpp`)。实测:单核 **37.19ms / 26.9FPS**;3 个独立 context 绑 3 核真并行 **59.3FPS / 2.21x**(三核各仅 49% 负载);逐层剖析出 **49% 时间(18.44ms)耗在 CPU 回退的 YOLOv8 DFL 检测头**(Transpose 9.2ms + Softmax 4.5ms + Reshape 4.4ms),NPU 主体仅 19.23ms。数据与优化路线已回填 `docs/BENCHMARKS.md` 2.2 节。
+- ✅ **板端性能实测与逐层剖析(2026-10-17)**:新增 `rk3588-edge-ai/deploy/cpp/bench/`(`bench_npu.cpp` / `bench_multicore.cpp`)。实测:单核 **37.19ms / 26.9FPS**;3 个独立 context 绑 3 核真并行 **59.3FPS / 2.21x**(三核各仅 49% 负载);逐层剖析出 **49% 时间(18.44ms)耗在 CPU 回退的 YOLOv8 DFL 检测头**(Transpose 9.2ms + Softmax 4.5ms + Reshape 4.4ms),NPU 主体仅 19.23ms。数据与优化路线已回填 `docs/BENCHMARKS.md` 2.2 节。
 - ✅ **免密 SSH**:`ssh root@10.21.3.103` 不用输密码(密钥 `~/.ssh/id_ed25519_rk3588`,别名 `ssh rk3588`;配置脚本 `_tools/setup_board_ssh.py`)。
 - 🚧 **第二阶段开工(2026-10-21):DFL-Free 模型改造 + 量化精度修复**
   - **ONNX 图手术砍掉 DFL 头**:`convert/export_dflfree_onnx.py` 把 `yolov8n.onnx`(262 节点, 1 输出 84ch) 切成 `yolov8n_dflfree.onnx`(228 节点, 2 输出: `raw_box` 64ch + `cls_sig` 80ch),整个 DFL 解码链(Transpose/Softmax/Reshape)从图里消失。
@@ -309,7 +309,7 @@ D:\a研究生\项目\rk3588项目\
     - **交付两个工具**（本地 `_tools/` ↔ 板上 `/root/`）：`npu_doctor.sh`（六节体检：驱动/频率/负载 → 谁在占 NPU → 残留 rkllm 实例 → systemd 自启 → 历史失败次数+used 值 → 结论与四步处理法）；`run_agent.sh`（清残留 → 停网关/看板 → 启动 Agent → `trap` 退出自动恢复 `edgevision.service`），**实测单条指令模式跑通**（自然语言问温度 → 自主调 `get_system_health` → 汇报 SOC 37°C / NPU 37.92°C / 可用 4808MB / LED heartbeat）。
     - **文档**：TROUBLESHOOTING **第 27 条**（含完整排查链路 + 5 条方法论 + 面试讲法）、速查清单新增 7 行、`CURRENT_STATUS.md` 顶部新增「⚠️ 关键运行约束:NPU IOMMU 只有 4 GiB」章节。
     - **方法论收获**：①「昨天好好的今天坏了」先查「机器上还有什么在跑」，不是先 `git diff` ②日志里相邻的 warning 和 error 不一定有因果 ③`size` 远小于 `MemAvailable` 却失败 → 限制不在物理内存那一层。
-- 🚧 **第四阶段新项目开工(2026-10-24):stereo3d 双目 3D 感知 / 人脸 3D 定位**(代码已归一到 `edgevision-rk3588/stereo3d/`)
+- 🚧 **第四阶段新项目开工(2026-10-24):stereo3d 双目 3D 感知 / 人脸 3D 定位**(代码已归一到 `rk3588-edge-ai/stereo3d/`)
   - **项目定位**:补上单目检测只有 2D 框的短板 → 双 USB 摄像头三角测量,输出目标 **3D 坐标 (X,Y,Z) 米**。核心公式 `Z = fx·B/d`,误差传播 `ΔZ = Z²/(fx·B)·Δd`(3m 处 1px 视差 ≈ 27cm,双目只在 3m 内靠谱——面试镇场结论)。
   - **架构**:原生 C++(只用 OpenCV 4.5.1,无第三方库),`include/` 四个头文件是硬契约,4 个智能体并行开发(stereo_pipeline / face_3d / http_server / calib 工具链),板上原生编译零 error 零 warning。
   - ✅ **真实双摄全链路跑通(2026-10-24)**:`/root/stereo3d/build/stereo3d_demo`,双摄 1280×720 → 立体矫正 → SGBM 视差 → 深度 → Haar 人脸框内深度中位数 → 3D 反投影 → 网页 2×2 实时预览(端口 8081)。实测分段:cap 16.3 / rect 5.4 / **sgbm 46.1(瓶颈)** / depth 0.6 / face 20.6 / enc 7.2 ms,全链路 **9.7~11 FPS**(222 帧)。视觉已用本地 qwen2.5vl 模型确认 4 宫格画面真实。
@@ -319,19 +319,19 @@ D:\a研究生\项目\rk3588项目\
   - ✅ **SGBM 提速消融完成(task-5,2026-10-24)**:先诊断推翻"单线程"假说(OpenCV 4.5.1 带 TBB,parallel_for_ 探针 4.10× 加速,46ms 已是并行态真实成本);再用 getenv 环境变量入口(STEREO_NUM_DISP/STEREO_BLOCK,不改 include/main)做 6 组×200 帧消融:**nd=64→32 只快 15.6%**(42.83→36.17ms,理论 O(W·H·N·D) 应省一半——DP 聚合访存与 D 无关,面试可讲"理论 vs 实测偏差");nd=32 有效视差占比反而最高(0.211 vs 0.178),代价最近可测距离 0.52→1.04m;block 5→7 无收益。**推荐 nd=32+block=5**;≤20ms 需降分辨率 480×270(后备手段暂不启用,Haar 在 270p 会变弱)。数据:`stereo3d/docs/BENCHMARKS.md` 第 5 节。
   - **踩坑已修**:① rectify 返回**单通道灰度**,main 直接拿去 hconcat 拼 BGR 视差图 → 类型断言崩溃,先 cvtColor 再拼;② OpenCV 4.5.1 `initUndistortRectifyMap(m1type=CV_16SC2)` 固定产出 **CV_16UC1** 的 map2(不存在 16SC2+32FC1 组合),6 字节/像素比 float 方案省 25% 访存;③ 摄像头被 `edgevision.service` 占用 → 测试前 `systemctl stop`,**测完必须 start 恢复**。
 - ✅ **工作区系统性规范化 + 使用说明落地(2026-10-27)**
-  - **根目录从 14 个散乱条目收敛到 8 个**:`README.md`(新) / `AGENTS.md` / `edgevision-rk3588/` / `rkllm_deploy/` / `rk3588开发板配套资料/` / `_tools/` / `_workbench/` / `.workbuddy/`。删掉 2 个空目录、`_probe_write/`、两份沙箱 ACL 残留(`_acl-recovery/`、`_acl_recovery/`)。
+  - **根目录从 14 个散乱条目收敛到 8 个**:`README.md`(新) / `AGENTS.md` / `rk3588-edge-ai/` / `rkllm_deploy/` / `rk3588开发板配套资料/` / `_tools/` / `_workbench/` / `.workbuddy/`。删掉 2 个空目录、`_probe_write/`、两份沙箱 ACL 残留(`_acl-recovery/`、`_acl_recovery/`)。
   - **新增根 `README.md`(9 节,使用说明正文)**:这是什么 / 目录地图(逐条「该不该动」) / 五分钟上手三条路径(只读书 40min、连板子、板端编译) / 端口表(8080·8081·8088·8090·9000) / **四条硬约束**(IOMMU 4GiB、只在板上编译、别内联 ssh、别用 PowerShell 写中文 UTF-8) / 文档地图 / 维护三条红线 + 命名约定 / `_workbench`·`_tools` 说明 / 当前状态与「明确未实现」清单。
   - **新增三份子目录 README**:`_workbench/README.md`(6 个子目录的来源·内容·能否删 + 4 条约定)、`_tools/README.md`(39 个脚本分 4 类:现役 5 / IOMMU 战役 20 / 性能测量 5 / D20 学习期 9)、`rkllm_deploy/README.md`(5 文件逐个说明 + 板上编译命令 + IOMMU 前置条件 + 为何不入库)。
   - **`_workbench/` 合流**:原 `_tmp/`(265 探针) + `_tmp_cmake_opt/`(62) → `probes/`;原根 `_test_results/`(54 次回归) → `test_results/`;根散落 `start_preview_real.sh` / `_p6_build.sh` / `_p6_t04.sh` → `board_scripts/`;两份会话转录(325KB+113KB,含手机号) + console log → `session_logs/`;`_tools` 清出的 20 项残留 + ACL 报告 + 会话备份 → `tools_residue/`;原根 `stereo3d-rk3588/` → `stereo3d-rk3588-archive/`。合计 6 子目录 570 文件约 60MB,**不在任何 git 仓库内**。
   - **引用修复(机器验证)**:`_test_results` → `_workbench/test_results` 共 17 处 6 文件;两个 Agent 脚本的默认输出目录改为 `<工作区>/_workbench/test_results`(3 层 dirname 上溯);`stereo3d-rk3588/docs/...` → `stereo3d/docs/...`。终验:**全工作区 md 相对链接 36 条 0 broken**、旧路径 grep 0 命中。
   - **`.gitignore` 个人材料护栏同步新路径**:`docs/resumes/` 改为**整目录屏蔽**(v3~v12 全部简历 docx/pdf/png + 生成器 + 两份他人简历 + Word 锁文件 + ACL 残留,任一被提交都会泄露手机号与 163 邮箱),另加 `docs/interview_book/RESUME_TEXT.md`、`.dsh-office-*/`、`_verify2/`。验收:三个敏感路径 `git check-ignore` 全部 IGNORED,`git add -A --dry-run` 敏感命中 0。
   - **补回搬迁丢失的两份文档**:`docs/archive/PATENT_DISCLOSURE_EQUIPDES.md`(5475B) 与 `docs/tech_notes/VOICE_ASR_PLAN.md`(24977B),均与 HEAD blob **逐字节等价**。
-  - **双目归一**:代码权威副本 = `edgevision-rk3588/stereo3d/`,补入 `evidence/`(合成真值 161KB + 标定自测 log + 标定 yml) 与 6 张证据图 + `deploy/ab_test.sh`;独立目录降级进 `_workbench/stereo3d-rk3588-archive/`,只留 `corners_check/`(19MB) 与 `_selftest/pairs/`(20.9MB) 等重资产。
+  - **双目归一**:代码权威副本 = `rk3588-edge-ai/stereo3d/`,补入 `evidence/`(合成真值 161KB + 标定自测 log + 标定 yml) 与 6 张证据图 + `deploy/ab_test.sh`;独立目录降级进 `_workbench/stereo3d-rk3588-archive/`,只留 `corners_check/`(19MB) 与 `_selftest/pairs/`(20.9MB) 等重资产。
   - **6 个 commit 入库**(b56a324 / 2d87f1d / 53d087f / 3b94cc6 / d030873 / b3660e7),工作树干净;仓库 **ahead 7**(仍缺 GitHub 凭据,待用户 push)。
   - 方法沉淀:一次性搬迁用脚本 + 机器验收(链接检查、旧路径 grep、`git check-ignore`、逐字节 diff),比人工核对可靠;**迁目录后必须同时改引用与 .gitignore**,否则会出现「文档 404」与「个人简历被提交」两类隐性事故。
 - ✅ **学习线 M1 IPC 实测(2026-10-29)**:8 机制 × 3 载荷,`lab/ipc/`。`shm_spin 0.583us` vs `shm_sem 8.17us`(**结构相同,差值纯是系统调用成本**);720p 整帧下**所有机制塌到同一水平**(≈6.5GB/s)→ **换机制省不了大帧带宽,只能减少拷贝**。坑:对照组设计错误 → **数据自相矛盾就说明设计错了**。
 - ✅ **学习线 M2 语音链路实测(2026-10-29)**:ASR sherpa-onnx **static**(shared 需 GLIBCXX 3.4.29,板上只 3.4.28)+ Paraformer int8,RTF **0.023(快约 40×)**;TTS **4 线程最优 0.564**;常驻 `tts_daemon.cpp` 摊掉 **3.70s 加载**(**5.5s→1.8s**)。坑:ES8388 **不支持 16k、只收双声道、plughw 失效**。详见 `BENCHMARKS.md` **2.11**。
-- ✅ **ESP32-S3 SG90 云台执行器跑通(2026-11-03)**:EVM3588-B **没有 40Pin GPIO、也没有任何 PWM 引出**(规格书只有 2×RS232/2×RS485/4×ADC/USB/HDMI/MIPI 等),Linux 非实时内核也做不出稳定 50Hz → 加一颗 ESP32-S3 当**实时执行器**,RK3588 只当决策大脑。工程 `edgevision-rk3588/esp32_gimbal/`(ESP-IDF v6.0.1)。
+- ✅ **ESP32-S3 SG90 云台执行器跑通(2026-11-03)**:EVM3588-B **没有 40Pin GPIO、也没有任何 PWM 引出**(规格书只有 2×RS232/2×RS485/4×ADC/USB/HDMI/MIPI 等),Linux 非实时内核也做不出稳定 50Hz → 加一颗 ESP32-S3 当**实时执行器**,RK3588 只当决策大脑。工程 `rk3588-edge-ai/esp32_gimbal/`(ESP-IDF v6.0.1)。
   - **实测**:`P 45 0` → 回读 `pw_avg=2000us per_avg=20000us`(理论 2000us 逐位对得上);连续 ±35° 摆动 18 秒 24 条命令全 `OK`;舵机上电即自锁。
   - **接线(已验证)**:舵机红→**USB转TTL 的 5V**(★**不能接板子 `5Vin`,那是输入脚**,USB 的电不会从它倒流出来);黑→ESP32 GND + TTL GND(**三者共地**);橙→GPIO14;ESP32 的 `USB` 口→电脑(板子自己供电+通信)。
   - **三个根因叠在同一症状上**(详见 TROUBLESHOOTING **第 50 条**,已进「面试主打」表):① `ledc_channel_config(gpio_num=-1)` 被 `GPIO_IS_VALID_OUTPUT_GPIO` 挡住 → `ESP_ERROR_CHECK` 直接 abort,`app_main` 从没执行过;② `gpio_set_direction(OUTPUT)` 会调 `gpio_hal_matrix_out_default` **抹掉刚配好的 LEDC 矩阵路由** → 引脚恒低电平零边沿,必须**先设方向后接信号**;③ `5Vin` 是输入脚。
@@ -361,7 +361,7 @@ D:\a研究生\项目\rk3588项目\
 ## 4. 目标与下一步(用户想干的事)
 1. **校招项目(核心)** —— 锁定方向 **【端侧 AI 部署 / 边缘计算工程师】（第一主力冲刺）+ 【嵌入式 Linux / 机器人系统】（高确定性保底）**。核心突破点：NPU 3核异步调度 + INT8量化掉点控制 + RGA/DMA-BUF 零拷贝 + 真实吞吐/延迟指标。
 2. **桌面信息屏** —— 用板子 HDMI 做;屏幕**还没买**(计划买 **微雪 7 寸 HDMI 触摸屏 1024x600,约130~180元**);**软件可以先做**(页面 + kiosk 全屏 + 开机自启)。
-3. **12 周工程与学习路线（4 阶段融合版）** —— 见 `edgevision-rk3588/docs/LEARNING_PLAN_4WEEKS.md`：
+3. **12 周工程与学习路线（4 阶段融合版）** —— 见 `rk3588-edge-ai/docs/LEARNING_PLAN_4WEEKS.md`：
    - **第一阶段（第 1～4 周）**：Linux C/C++ 系统编程与边缘服务底座（★ **100% 满贯收官！已交付无人值守 EdgeVision V1.0 边缘推理网关**）
    - **第二阶段（第 5～7 周）**：RK3588 端侧推理深度剖析与模型极致优化（**下一步主力冲刺！① 真实画面 OpenCV 画框显示 + YOLOv8 C++ 真实 NMS 后处理；② 改模型导出砍 DFL 头，36ms 打入 20ms 以内；③ RGA/DMA-BUF 显存零拷贝；④ FP16 vs INT8 量化精度与延迟对照实验**）
    - **第三阶段（第 8～10 周）**：Edge AI Agent 应用开发（Tool Calling 联动板端 C++ 服务、查温区/控外设/触发视觉检测、多步工作流与权限安全）
@@ -379,17 +379,17 @@ bash /root/check_board.sh             # 板卡自检
 cat /sys/class/thermal/thermal_zone0/temp   # 温度
 cat /sys/kernel/debug/rknpu/load      # NPU 三核负载
 ```
-- 代码(电脑):`D:\a研究生\项目\rk3588项目\edgevision-rk3588`
+- 代码(电脑):`D:\a研究生\项目\rk3588项目\rk3588-edge-ai`
 - 板端源码:`/root/edgevision/deploy/cpp`(板端原生编译:`cmake .. -DCROSS_COMPILE_RK3588=ON && make`)
-- 模型:`edgevision-rk3588/data/models/yolov8n_rk3588_i8.rknn`
+- 模型:`rk3588-edge-ai/data/models/yolov8n_rk3588_i8.rknn`
 - 配套资料:`D:\a研究生\项目\rk3588项目\rk3588开发板配套资料\EVM3588-B开发套件`
 
 ## 6. 相关文档
-- `edgevision-rk3588/docs/LEARNING_PLAN_4WEEKS.md` —— 4周「边学边练」计划
-- `edgevision-rk3588/docs/TROUBLESHOOTING.md` —— 踩坑记录(遇到新问题**必须**往这里追加,规则见开头「工作约定」)
-- `edgevision-rk3588/docs/archive/CAREER_DIRECTIONS.md` —— 校招方向清单
-- `edgevision-rk3588/docs/CURRENT_STATUS.md` —— 状态快照
-- `edgevision-rk3588/README.md`、`docs/archive/ONBOARD_QUICKSTART.md`、`docs/archive/STUDY_GUIDE_PRO.md`
+- `rk3588-edge-ai/docs/LEARNING_PLAN_4WEEKS.md` —— 4周「边学边练」计划
+- `rk3588-edge-ai/docs/TROUBLESHOOTING.md` —— 踩坑记录(遇到新问题**必须**往这里追加,规则见开头「工作约定」)
+- `rk3588-edge-ai/docs/archive/CAREER_DIRECTIONS.md` —— 校招方向清单
+- `rk3588-edge-ai/docs/CURRENT_STATUS.md` —— 状态快照
+- `rk3588-edge-ai/README.md`、`docs/archive/ONBOARD_QUICKSTART.md`、`docs/archive/STUDY_GUIDE_PRO.md`
 
 ## 7. 协作偏好(重要)
 - **说中文**;回答**简洁、直接、可操作**。

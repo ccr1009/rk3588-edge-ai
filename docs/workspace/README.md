@@ -3,7 +3,7 @@
 > 一块 **EVM3588-B（英码科技 EMA，RK3588 / 8GB / Debian 11）** 开发板上的端侧 AI 项目集合。
 > 这份文档是**根目录的入口**：告诉你每个目录是什么、怎么把东西跑起来、哪些约定不能破。
 >
-> 只想知道「现在能干什么」→ 直接看 `edgevision-rk3588/docs/CURRENT_STATUS.md`。
+> 只想知道「现在能干什么」→ 直接看 `rk3588-edge-ai/docs/CURRENT_STATUS.md`。
 
 ---
 
@@ -21,7 +21,7 @@
 定位是**校招作品集**：所有数字都来自真机实测，口径与局限写在同一份文档里（`docs/BENCHMARKS.md`）。
 没有实现的东西**明确列出来**，不吹。
 
-**整体架构（三条线怎么串起来、共享哪些资源）见 [`docs/ARCHITECTURE.md`](edgevision-rk3588/docs/ARCHITECTURE.md)。**
+**整体架构（三条线怎么串起来、共享哪些资源）见 [`docs/ARCHITECTURE.md`](rk3588-edge-ai/docs/ARCHITECTURE.md)。**
 
 ---
 
@@ -31,7 +31,7 @@
 D:\a研究生\项目\rk3588项目\
 ├── README.md                  ← 本文件（工作区使用说明，不是 git 仓库）
 ├── AGENTS.md                  ← 项目总纲：我是谁 / 已完成的证据 / 下一步 / 协作偏好
-├── edgevision-rk3588\         ← ★ 主项目，唯一 git 仓库
+├── rk3588-edge-ai\         ← ★ 主项目，唯一 git 仓库
 ├── rkllm_deploy\              ← 板上 /root/rkllm_deploy 的本地镜像（runtime + demo 源码）
 ├── rk3588开发板配套资料\       ← 英码官方 SDK / 镜像 / 手册（27.5 GB，只读不动）
 ├── _tools\                    ← 本地辅助脚本（体检 / 定量实验 / 排查复现）
@@ -41,8 +41,8 @@ D:\a研究生\项目\rk3588项目\
 
 | 条目 | 是什么 | 该不该动 |
 |---|---|---|
-| `edgevision-rk3588/` | 主仓库。代码在 `deploy/cpp`（C++ 引擎）、`lab`（练习与 Agent 源码）、`stereo3d`（双目）、`convert`（模型转换）；文档全在 `docs/` | ✅ 日常就在这改 |
-| `rkllm_deploy/` | `librkllmrt.so`（7.3 MB，RKLLM runtime）+ 4 个 demo 源。**Agent 真源码在 `edgevision-rk3588/lab/rkllm_embodied_agent.cpp`** | 只读参考 |
+| `rk3588-edge-ai/` | 主仓库。代码在 `deploy/cpp`（C++ 引擎）、`lab`（练习与 Agent 源码）、`stereo3d`（双目）、`convert`（模型转换）；文档全在 `docs/` | ✅ 日常就在这改 |
+| `rkllm_deploy/` | `librkllmrt.so`（7.3 MB，RKLLM runtime）+ 4 个 demo 源。**Agent 真源码在 `rk3588-edge-ai/lab/rkllm_embodied_agent.cpp`** | 只读参考 |
 | `rk3588开发板配套资料/` | 厂商资料。刷机镜像、SDK、原理图 | ❌ 别动，也别提交 |
 | `_tools/` | 39 个脚本：体检（`npu_doctor.sh`）、跑 Agent（`run_agent.sh`）、IOMMU 定量实验、排查复现链 | 看 `_tools/README.md` 分类再用 |
 | `_workbench/` | `probes/`(探针 331 文件) `test_results/`(回归产物) `board_scripts/` `session_logs/` `tools_residue/` `stereo3d-rk3588-archive/` | 见 `_workbench/README.md`，可整块清 |
@@ -56,11 +56,11 @@ D:\a研究生\项目\rk3588项目\
 
 按这个顺序，一共约 40 分钟：
 
-1. `edgevision-rk3588/README.md` —— 项目是什么、旗舰演示、明确未实现清单
-2. `edgevision-rk3588/docs/CURRENT_STATUS.md` —— 现在能干什么 + 下一步（**接手先看这份**）
-3. `edgevision-rk3588/docs/BENCHMARKS.md` —— 所有性能/精度数字，含测量口径与局限
-4. `edgevision-rk3588/docs/TROUBLESHOOTING.md` —— 27 条踩坑记录（面试素材库）
-5. `edgevision-rk3588/docs/LEARNING_PLAN_4WEEKS.md` —— 学习路线
+1. `rk3588-edge-ai/README.md` —— 项目是什么、旗舰演示、明确未实现清单
+2. `rk3588-edge-ai/docs/CURRENT_STATUS.md` —— 现在能干什么 + 下一步（**接手先看这份**）
+3. `rk3588-edge-ai/docs/BENCHMARKS.md` —— 所有性能/精度数字，含测量口径与局限
+4. `rk3588-edge-ai/docs/TROUBLESHOOTING.md` —— 27 条踩坑记录（面试素材库）
+5. `rk3588-edge-ai/docs/LEARNING_PLAN_4WEEKS.md` —— 学习路线
 
 ### 路径 B — 连板子把东西跑起来
 
@@ -94,7 +94,7 @@ export STEREO3D_BOARD=<board-ip>            # stereo3d 侧
 
 ```bash
 # 板子上
-cd /root/edgevision && rsync -a --exclude build_native /path/to/local/edgevision-rk3588/deploy/ .  # 或 scp
+cd /root/edgevision && rsync -a --exclude build_native /path/to/local/rk3588-edge-ai/deploy/ .  # 或 scp
 cd deploy/cpp
 cmake -S . -B build_native -DCMAKE_BUILD_TYPE=Release -DCROSS_COMPILE_RK3588=ON
 cmake --build build_native -j4
@@ -151,7 +151,7 @@ PowerShell 会把 `ssh root@<ip> 'a | b; c'` 的引号吃掉 → **写成 `.sh` 
 
 ## 6. 文档地图
 
-### 核心五份（`edgevision-rk3588/docs/`）
+### 核心五份（`rk3588-edge-ai/docs/`）
 
 | 文档 | 什么时候看 |
 |---|---|
@@ -208,7 +208,7 @@ PowerShell 会把 `ssh root@<ip> 'a | b; c'` 的引号吃掉 → **写成 `.sh` 
 `_tools/` 的分类（现役 / 一次性排查 / 已被取代）见 `_tools/README.md`。
 
 > 根目录**不是 git 仓库**，所以 `_workbench/` 天然不会误提交。真正的护栏在
-> `edgevision-rk3588/.gitignore`（个人材料、构建产物、渲染中间件全在那里）。
+> `rk3588-edge-ai/.gitignore`（个人材料、构建产物、渲染中间件全在那里）。
 
 ---
 
@@ -221,5 +221,5 @@ RKLLM 具身 Agent（纯单板离线闭环）→ 车载 3D 实时看板 → 双�
 **明确未实现（不要对外宣传）**：H.264/265 硬解、RTSP、RGA 硬件 CSC、DMA-BUF 零拷贝、
 ByteTrack 进 C++、4 路 1080p、30 fps（实际 24~27）、功耗数字。
 
-**下一步**：见 `edgevision-rk3588/docs/CURRENT_STATUS.md` 末尾。
+**下一步**：见 `rk3588-edge-ai/docs/CURRENT_STATUS.md` 末尾。
 当前主线是**面试与实习投递**，不是继续开功能。

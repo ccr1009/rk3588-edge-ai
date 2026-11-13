@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: RKNN Inference Backend (RK3588 NPU Target / x86 Simulator Stub)
+# rk3588-edge-ai: RKNN Inference Backend (RK3588 NPU Target / x86 Simulator Stub)
 # ==============================================================================
 import os
 import sys

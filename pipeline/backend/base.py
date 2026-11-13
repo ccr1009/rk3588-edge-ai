@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Abstract Inference Backend Interface
+# rk3588-edge-ai: Abstract Inference Backend Interface
 # ==============================================================================
 from abc import ABC, abstractmethod
 import numpy as np

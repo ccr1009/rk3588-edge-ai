@@ -12,7 +12,7 @@
 ## 一、30 秒看懂
 
 ```
-edgevision-rk3588/
+rk3588-edge-ai/
 ├── README.md              ← 怎么用（快速上手）
 ├── PROJECT_STRUCTURE.md   ← 本文件：每个目录是什么
 ├── AGENTS.md              ← 协作须知（AI/新人接手先读）

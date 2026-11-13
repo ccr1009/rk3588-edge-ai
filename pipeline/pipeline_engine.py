@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Multi-Threaded Real-Time Video Analysis Pipeline
+# rk3588-edge-ai: Multi-Threaded Real-Time Video Analysis Pipeline
 # ==============================================================================
 import os
 import cv2
@@ -26,7 +26,7 @@ class PipelineEngine:
         self.event_log = event_log
         self.display = display
         self.max_frames = max_frames
-        self.window_name = "EdgeVision-RK3588 (press q/ESC to quit)"
+        self.window_name = "rk3588-edge-ai (press q/ESC to quit)"
 
         if model_path is None:
             if backend_type == "onnx":
@@ -246,7 +246,7 @@ class PipelineEngine:
 
     def run(self):
         print("==================================================================")
-        print("EdgeVision-RK3588: Starting Multi-Threaded Real-Time Pipeline")
+        print("rk3588-edge-ai: Starting Multi-Threaded Real-Time Pipeline")
         print(f"Video Source:    {self.video_src}")
         print(f"Backend:         {self.backend_type.upper()}")
         print(f"Model Path:      {self.model_path}")

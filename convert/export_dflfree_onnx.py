@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: YOLOv8 "DFL-Free" ONNX Exporter (Graph Surgery)
+# rk3588-edge-ai: YOLOv8 "DFL-Free" ONNX Exporter (Graph Surgery)
 # ------------------------------------------------------------------------------
 # 背景（实测依据，见 docs/BENCHMARKS.md 2.2.3）：
 #   原 yolov8n.onnx 的 DFL 检测头在 RK3588 NPU 上无法融合，回退到 CPU：
@@ -114,7 +114,7 @@ def extract_subgraph(src_path, dst_path, box_out, cls_out):
     )
     new_model = helper.make_model(
         new_graph,
-        producer_name='edgevision-rk3588-dflfree',
+        producer_name='rk3588-edge-ai-dflfree',
         opset_imports=m.opset_import,
         ir_version=m.ir_version,
     )

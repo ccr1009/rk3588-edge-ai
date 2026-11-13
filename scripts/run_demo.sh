@@ -5,7 +5,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 echo "=================================================================="
-echo "EdgeVision-RK3588: Running End-to-End Multi-Threaded Demo"
+echo "rk3588-edge-ai: Running End-to-End Multi-Threaded Demo"
 echo "=================================================================="
 
 # Ensure test video exists

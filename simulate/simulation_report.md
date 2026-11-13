@@ -1,4 +1,4 @@
-# EdgeVision-RK3588: x86 RKNN 仿真器量化精度评估报告
+# rk3588-edge-ai: x86 RKNN 仿真器量化精度评估报告
 
 > **测试平台**: WSL2 (Ubuntu 22.04 LTS / x86_64)  
 > **对比模型**: YOLOv8n ONNX (FP32) vs YOLOv8n RKNN (INT8 PTQ)  

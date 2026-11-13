@@ -130,7 +130,7 @@ llm_pending.jsonl 同步出现同一事件（慢层契约 `{"ts","type","summary
 
 ## 10. 交付物与范围
 
-- `edgevision-rk3588/lab/edgevision_patrol_daemon.cpp`（v2：用户态爆闪/阈值参数/flock）
-- `edgevision-rk3588/lab/build_patrol_daemon.sh`（未改动，沿用）
-- 本证据文件 `edgevision-rk3588/lab/patrol_led_evidence.md`
+- `rk3588-edge-ai/lab/edgevision_patrol_daemon.cpp`（v2：用户态爆闪/阈值参数/flock）
+- `rk3588-edge-ai/lab/build_patrol_daemon.sh`（未改动，沿用）
+- 本证据文件 `rk3588-edge-ai/lab/patrol_led_evidence.md`
 - 未触碰 `rkllm_embodied_agent.cpp`（tool-fixer 范围）与 `docs/`（Lead 统一回填）

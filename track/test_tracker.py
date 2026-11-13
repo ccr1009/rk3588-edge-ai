@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Unit Test for Pure NumPy ByteTrack
+# rk3588-edge-ai: Unit Test for Pure NumPy ByteTrack
 # Tests:
 # 1. Straight-line trajectory continuity (Zero ID switch)
 # 2. Occlusion recovery (Second-stage association with low-confidence detections)

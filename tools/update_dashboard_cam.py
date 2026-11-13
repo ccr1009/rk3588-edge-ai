@@ -1,6 +1,6 @@
 import sys
 
-file_path = r'D:\a研究生\项目\rk3588项目\edgevision-rk3588\deploy\cpp\src\edgevision_dashboard_main.cpp'
+file_path = r'D:\a研究生\项目\rk3588项目\rk3588-edge-ai\deploy\cpp\src\edgevision_dashboard_main.cpp'
 with open(file_path, 'r', encoding='utf-8') as f:
     content = f.read()
 

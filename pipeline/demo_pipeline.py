@@ -9,7 +9,7 @@ from pipeline.pipeline_engine import PipelineEngine
 
 
 def main():
-    parser = argparse.ArgumentParser(description="EdgeVision-RK3588 Real-Time Video Analysis Demo")
+    parser = argparse.ArgumentParser(description="rk3588-edge-ai Real-Time Video Analysis Demo")
     parser.add_argument("--video", type=str, default="data/videos/test_surveillance.mp4",
                         help="Video file, camera index (e.g. 0), or RTSP stream")
     parser.add_argument("--backend", type=str, default="onnx", choices=["onnx", "rknn"], help="Inference backend (onnx for x86)")

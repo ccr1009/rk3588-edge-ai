@@ -1,5 +1,5 @@
 # ==============================================================================
-# EdgeVision-RK3588: Pure NumPy ByteTrack Implementation
+# rk3588-edge-ai: Pure NumPy ByteTrack Implementation
 # Reference: ByteTrack: Multi-Object Tracking by Associating Every Detection Box (ECCV 2022)
 # ==============================================================================
 import numpy as np

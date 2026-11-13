@@ -30,8 +30,8 @@ from pipeline.bev_pipeline import BEVPerceptionPipeline
 def find_model_path():
     candidates = [
         os.path.join(PROJECT_ROOT, "data", "models", "yolov8n.onnx"),
-        r"\\wsl.localhost\Ubuntu\home\yankai\projects\RK3588 端侧多路视频分析盒子\edgevision-rk3588\data\models\yolov8n.onnx",
-        r"\\wsl$\Ubuntu\home\yankai\projects\RK3588 端侧多路视频分析盒子\edgevision-rk3588\data\models\yolov8n.onnx",
+        r"\\wsl.localhost\Ubuntu\home\yankai\projects\RK3588 端侧多路视频分析盒子\rk3588-edge-ai\data\models\yolov8n.onnx",
+        r"\\wsl$\Ubuntu\home\yankai\projects\RK3588 端侧多路视频分析盒子\rk3588-edge-ai\data\models\yolov8n.onnx",
     ]
     for p in candidates:
         if os.path.exists(p):
