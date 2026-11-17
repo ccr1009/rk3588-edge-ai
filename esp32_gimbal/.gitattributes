@@ -1,0 +1,61 @@
+# ============================================================================
+#  .gitattributes —— 控制 GitHub Linguist 的语言统计（子目录版）
+#
+#  这个文件放在 esp32_gimbal/ 下，用于 **esp32-gimbal-rk3588 独立仓库**
+#  （通过 git subtree push 推上去后，esp32_gimbal/ 就成了那个仓库的根）。
+#
+#  主仓库 rk3588-edge-ai 的统计由根目录的 .gitattributes 控制。
+#
+#  为什么需要（2026-11-17）：
+#    GitHub 按「各语言代码字节数占比」判定仓库主语言。
+#    这个子项目清理掉历史探针后是 Python 40.7% / C++ 35.3%，
+#    因为 host/ 下有 28 个 Python 工具脚本（桥接、验证、诊断），
+#    而 C++ 核心只有 1 个文件（w4_edgevision_gimbal_preview.cpp，3019 行 / 173 KB）。
+#
+#    但技术重心不是 Python：
+#      · ESP32 固件   —— C，main/gimbal_main.c（986 行，实时控制循环）
+#      · RK3588 视觉  —— C++，host/w4_edgevision_gimbal_preview.cpp
+#                        （三线程流水线 + NPU 推理 + 控制律 + 启动姿态 + 丢目标回位）
+#      · Python       —— 只做 USB 桥接和运维工具，不参与实时链路
+#
+#  ★ linguist-vendored 只影响统计和语法高亮，**不影响文件本身**
+#    文件照常 clone、照常能跑、照常在 GitHub 上能看到内容。
+# ============================================================================
+
+# ── 主语言声明 ──────────────────────────────────────────────────────
+*.c     linguist-language=C++
+*.h     linguist-language=C++
+*.cpp   linguist-language=C++
+*.hpp   linguist-language=C++
+
+# ── Python 运维工具：不计入语言统计 ────────────────────────────────
+#   桥接/验证/诊断脚本，不是产品主体代码。
+#   vendored 的语义是「第三方或辅助代码」，对应这里的定位。
+host/*.py           linguist-vendored
+gimbal_bridge.py    linguist-vendored
+usb_cdc_serial.py   linguist-vendored
+
+# ── Shell / PowerShell 运维脚本：不计入 ────────────────────────────
+#   ★ 注意 host/run_tracking.ps1 在子目录里，单靠 *.ps1 盖不住，
+#     必须显式写 host/*.ps1（2026-11-17 实测踩到：漏了这条，
+#     统计里还剩一个 6 KB 的 PowerShell）
+host/*.sh   linguist-vendored
+host/*.ps1  linguist-vendored
+*.ps1       linguist-vendored
+*.sh        linguist-vendored
+
+# ── 文档 / 数据文件 ────────────────────────────────────────────────
+*.md        linguist-documentation
+*.txt       linguist-documentation
+*.service   linguist-documentation
+*.defaults  linguist-documentation
+
+# ── 行尾统一 ────────────────────────────────────────────────────────
+#   这个仓库历史上踩过 CRLF 问题（见 scripts/sync-all.sh 里 core.autocrlf 的注释）
+*.c     text eol=lf
+*.cpp   text eol=lf
+*.h     text eol=lf
+*.hpp   text eol=lf
+*.py    text eol=lf
+*.sh    text eol=lf
+*.md    text eol=lf

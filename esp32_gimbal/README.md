@@ -203,13 +203,17 @@ python host/verify_closed_loop.py    # 记录 pan/tilt 轨迹，给判据
 | `run_gimbal_tracking.sh` | 一键起追踪 + 预览 |
 | `uvc_recover.sh` | 摄像头复位（unbind/bind uvcvideo） |
 
-### `host/archive/probes/`（53 个一次性探针，仅留档）
+### 关于调试期的一次性探针（2026-11-17 已清理）
 
-调试期写的诊断脚本：`diag_*.py`、`baud_*.py`、`catch_boot*.py`、`test_*.py`、
-`_*.py`（下划线前缀）、`power_diag.py` 等。
+早期在 `host/archive/probes/` 下留了 58 个诊断脚本（`diag_*.py`、`baud_*.py`、
+`catch_boot*.py`、`test_*.py`、`_*.py` 等），是为了追溯"每个坑当时是怎么查的"。
 
-**它们不是产品代码**，结论已固化进本文档和 `docs/TROUBLESHOOTING.md`。
-留着是因为能追溯"每个坑当时是怎么查的"，但**不需要运行，也不需要维护**。
+**已删除**。原因：它们不是产品代码，且 176 KB 的 Python 把 GitHub 语言统计
+顶成了 Python（占 54%），与项目实际构成（C++ 控制 + C 固件）不符。
+所有结论都已固化进本文档和 `docs/TROUBLESHOOTING.md`。
+
+> 唯一保留的是 `host/usb_cdc_serial.py` —— 它是 `gimbal_bridge.py` 的核心依赖
+> （`from usb_cdc_serial import UsbCdcSerial`），已移到 `host/` 根目录。
 
 ---
 

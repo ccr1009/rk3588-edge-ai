@@ -142,9 +142,7 @@ float cur_tilt = isnan(px->cfg.start_tilt) ? 0.f : px->cfg.start_tilt;
 | 文件 | 说明 |
 |---|---|
 | `/root/lab/v5_startpose` | 带启动姿态的二进制（130160 B） |
-| `/root/lab/w4_edgevision_gimbal_preview.cpp` | 源码 |
-| `host/add_start_pose.py` | 加参数的补丁脚本 |
-| `host/fix_start_pose_init.py` | 修初值的补丁脚本 |
+| `/root/lab/w4_edgevision_gimbal_preview.cpp` | 源码（补丁已合入，不再需要单独的补丁脚本） |
 | `host/scan_for_you.py` | 扫描找合适姿态的工具 |
 | `/etc/systemd/system/gimbal-tracker.service` | 已配置启动姿态 |
 

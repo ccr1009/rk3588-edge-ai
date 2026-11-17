@@ -1,0 +1,59 @@
+# ============================================================================
+#  .gitattributes —— 主仓库 rk3588-edge-ai 的 Linguist 统计控制
+#
+#  为什么需要（2026-11-17）：
+#    GitHub 按「各语言代码字节数占比」判定仓库主语言。
+#    本仓库包含三条技术线：
+#
+#      ① 视觉推理（C++/Python，bev/ convert/ deploy/ lab/ pipeline/ …）
+#         核心是 C++ 的 MPP 硬解 + NPU 推理 + DFL-Free 后处理
+#      ② 嵌入式云台（C 固件 + C++ 控制，esp32_gimbal/）
+#         核心是 main/gimbal_main.c 和 host/w4_edgevision_gimbal_preview.cpp
+#      ③ 立体视觉（C++，stereo3d/）
+#
+#    但根目录下有大量 **Python 运维/验证/一次性脚本**，字节数会盖过 C++，
+#    导致 GitHub 把整个仓库标成 Python。
+#
+#    这不是技术判断，是统计口径问题 —— 用 linguist 属性纠正。
+#
+#  ★ linguist-vendored / linguist-documentation 只影响**统计归类**，
+#    不影响文件本身：照常 clone、照常能跑、照常在网页上能看到。
+# ============================================================================
+
+# ── 主语言优先声明 ──────────────────────────────────────────────────
+*.c       linguist-language=C++
+*.h       linguist-language=C++
+*.cpp     linguist-language=C++
+*.hpp     linguist-language=C++
+*.cc      linguist-language=C++
+
+# ── 各子模块的 .gitattributes 已声明过，这里不重复 ────────────────────
+#   但如果子目录没有自带 .gitattributes，下面的规则兜底。
+
+# ── 一次性/辅助 Python 脚本：不计入语言统计 ─────────────────────────
+#   这些是排查问题时写的验证、诊断、临时补丁脚本，不是产品主体代码。
+esp32_gimbal/host/*.py           linguist-vendored
+esp32_gimbal/*.py                linguist-vendored
+scripts/*.py                     linguist-vendored
+
+# ── Shell / PowerShell 运维脚本 ─────────────────────────────────────
+scripts/*.sh                     linguist-vendored
+*.ps1                            linguist-vendored
+
+# ── 文档 ───────────────────────────────────────────────────────────
+*.md                             linguist-documentation
+docs/*                           linguist-documentation
+
+# ── 数据 / 输出目录（不该进统计）───────────────────────────────────
+data/**                          linguist-vendored
+outputs/**                       linguist-vendored
+demo/**                          linguist-vendored
+
+# ── 行尾统一（这个仓库踩过 CRLF 误判的坑，见 scripts/sync-all.sh）──────
+*.c       text eol=lf
+*.cpp     text eol=lf
+*.h       text eol=lf
+*.hpp     text eol=lf
+*.py      text eol=lf
+*.sh      text eol=lf
+*.md      text eol=lf

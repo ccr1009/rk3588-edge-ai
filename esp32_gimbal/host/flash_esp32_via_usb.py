@@ -19,7 +19,7 @@ esptool 的 USB-JTAG 后端（`--before default-reset --after hard-reset` 配合
 
 ★ 但实测更简单可靠的办法：建一个 pty，让 esptool 以为那是串口，
   把 pty 的读写转发到接口 2 的 bulk 端点。
-  见 host/archive/probes/esptool_over_usb.py（早期版本，本脚本是它的加固版）。
+  （早期版本的 pty 桥接思路已固化进本脚本；原探针脚本 2026-11-17 已清理）
 
 本脚本的加固点
 --------------

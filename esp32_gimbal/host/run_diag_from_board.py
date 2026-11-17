@@ -16,7 +16,7 @@ ESP32 现在插在 RK3588 上，PC 上没有 COM 口。想烧新固件有两种�
 ------------------
 EVM3588-B 内核没编 CONFIG_USB_ACM，ESP32 的 CDC 建不出 /dev/ttyACM*。
 所以板端只能用 pyusb 在用户态直接读写 bulk 端点（已有 usb_cdc_serial.py）。
-esptool 烧写还需要精确复位时序，风险高 —— 见 host/archive/probes/esptool_over_usb.py，
+esptool 烧写还需要精确复位时序，风险高（早期探针脚本 2026-11-17 已清理，
 那是「能试但要接受失败」的方案。真烧不进去就拔到 PC 上烧。
 
 用法（板子上）
