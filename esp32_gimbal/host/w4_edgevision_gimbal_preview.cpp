@@ -60,6 +60,10 @@
 //      --max-step-tilt N    tilt 轴单帧步长上限，默认 0.20 单位 = 0.20×80.0 = 16.0 px
 //      --deadzone N         pan 死区（整幅宽归一化），默认 0.025 → 0.025×1280 = 32 px
 //      --deadzone-tilt N    tilt 死区（整幅高归一化），默认 0.035 → 0.035×720 = 25.2 px
+//      --start-pan N        ★ 启动姿态 pan（2026-11-17 新增）
+//      --start-tilt N       ★ 启动姿态 tilt
+//                           为什么需要：舵机固定后中位可能看不到人，
+//                           不先摆过去就会往错误方向追、顶到限位卡死。
 //  为什么必须分开：固件 PAN_RANGE_DEG=90 / TILT_RANGE_DEG=45，都对应物理 180° 全行程，
 //  所以 pan 1 指令单位 = 2° 物理角、tilt 1 指令单位 = 4° 物理角（是 pan 的 2 倍）。
 //  折算画面像素：pan 1280/60×2 = 42.7 px/单位，tilt 720/36×4 = 80.0 px/单位（1.87 倍）。
@@ -240,6 +244,12 @@ public:
         pthread_create(&thread_, nullptr, &GimbalSerial::thread_entry, this);
         return true;
     }
+
+    // 给启动姿态用的裸 fd（2026-11-17）
+    //   为什么需要：启动时要直接发一条 P 命令摆姿态，但 set_target 是异步的
+    //   （只写目标、由串口线程发），没法确认"发出去"和"到位"。
+    //   这里暴露 fd 让 main 直接写一条并等待。
+    int fd_for_start() const { return fd_; }
 
     // 主循环调用：只更新目标，不做 I/O
     void set_target(float pan, float tilt) {
@@ -600,6 +610,21 @@ struct ControlCfg {
     //   ±45° 里有一部分角度虽然不撞机械、但镜头已经对着天花板/地板，画面里根本没有人。
     //   实测能稳定看见人的区间约 -30 ~ -8，这里取更宽的 -35 ~ -5 做软件兜底：
     //   只在控制输出处钳位，不影响 tilt_range 的机械保护语义。
+    // ── 启动姿态（2026-11-17 新增）──────────────────────────────
+    //
+    // 为什么需要：
+    //   舵机固定后，上电中位是 P0 T0（朝天花板），看不到人。
+    //   程序启动时沿用当前姿态，如果看不到人就往错误方向一直追，
+    //   最后顶到 P-90 限位卡死（实际发生过，用户反馈"停在那里动不了"）。
+    //
+    // 用法：
+    //   --start-pan 5 --start-tilt -20
+    //   启动时先摆到这个姿态再开始追踪。
+    //
+    // 默认 NAN = 不启用（沿用当前姿态，保持向后兼容）。
+    float start_pan  = NAN;
+    float start_tilt = NAN;
+
     float tilt_safe_min = -35.0f;
     float tilt_safe_max = -5.0f;
     // ★ invert_pan 与 --rotate 强耦合，推导见文件头注释，结论：
@@ -2118,7 +2143,15 @@ static void* thread_b_infer(void* arg) {
     PipelineCtx* px = static_cast<PipelineCtx*>(arg);
 
     // 云台当前角度：跟踪**最后一次确认**的角度，不是想要的角度（沿用原语义）
-    float cur_pan = 0.f, cur_tilt = 0.f;
+    //
+    // ★ 2026-11-17 修正：初值必须等于**启动姿态**，不能写死 0。
+    //   踩过的坑：加了 --start-pan/--start-tilt 后，姿态确实摆过去了
+    //   （日志有 "[+] 启动姿态: P +5.0 -20.0"），但控制律以为当前还在 (0,0)，
+    //   第一帧就按"从 0 出发"算增量，结果 tilt 被 tilt_safe 钳到 -5：
+    //       P-1.6 T-5.0 LOST     ← 摆到 -20 了却往 -5 修正
+    //   所以这里要跟着启动姿态走，否则白摆。
+    float cur_pan  = isnan(px->cfg.start_pan)  ? 0.f : px->cfg.start_pan;
+    float cur_tilt = isnan(px->cfg.start_tilt) ? 0.f : px->cfg.start_tilt;
     bool locked = false;
     int lost_frames = 0;
     // 低通滤波状态 + settle 暂停（原样保留，语义见原注释）
@@ -2669,6 +2702,10 @@ int main(int argc, char* argv[]) {
         //   没统一"比例→舵机指令"，同样 0.025 换到 tilt 只有 0.225 指令单位（pan 的 0.75 的 1/3），
         //   tilt 反而更容易被判出死区。同时蹲起是低频大幅动作，不需要追太细。
         else if (strcmp(argv[i], "--deadzone-tilt") == 0 && i + 1 < argc) cfg.deadzone_tilt = atof(argv[++i]);
+        // --start-pan / --start-tilt：启动时先摆到这个姿态（2026-11-17）
+        //   解决"中位看不到人 → 往错误方向追到限位"的问题。
+        else if (strcmp(argv[i], "--start-pan")  == 0 && i + 1 < argc) cfg.start_pan  = atof(argv[++i]);
+        else if (strcmp(argv[i], "--start-tilt") == 0 && i + 1 < argc) cfg.start_tilt = atof(argv[++i]);
         else if (strcmp(argv[i], "--min-score") == 0 && i + 1 < argc) cfg.min_score = atof(argv[++i]);
         else if (strcmp(argv[i], "--no-invert-pan") == 0) { cfg.invert_pan = false; invert_pan_explicit = true; }
         else if (strcmp(argv[i], "--invert-pan") == 0) { cfg.invert_pan = true; invert_pan_explicit = true; }
@@ -2820,6 +2857,21 @@ int main(int argc, char* argv[]) {
                    "（tilt 独立限幅，见 --max-step-tilt 注释）\n",
                    cfg.max_step, cfg.max_step * 42.7f,
                    cfg.max_step_tilt, cfg.max_step_tilt * 80.0f);
+
+            // ── 启动姿态（2026-11-17）──────────────────────────────
+            //   如果指定了 --start-pan/--start-tilt，先摆过去再开始追。
+            //   为什么需要：舵机固定后中位可能看不到人，不摆过去就会往错误方向
+            //   一直追、顶到限位卡死（用户实际遇到：P-90 卡住动不了）。
+            if (!isnan(cfg.start_pan) || !isnan(cfg.start_tilt)) {
+                float sp = isnan(cfg.start_pan)  ? 0.0f : cfg.start_pan;
+                float st = isnan(cfg.start_tilt) ? 0.0f : cfg.start_tilt;
+                char cmd[64];
+                int n = snprintf(cmd, sizeof(cmd), "P %.2f %.2f\n", sp, st);
+                if (write(gimbal.fd_for_start(), cmd, n) > 0) {
+                    printf("[+] 启动姿态: P %+.1f %+.1f（等待到位）\n", sp, st);
+                    usleep(1500000);      // 等舵机转过去（1.5s 够走满行程）
+                }
+            }
         } else {
             std::cerr << "[!] 桥接服务连不上，退化为纯预览模式\n";
             std::cerr << "    先跑：/root/rknn_env/bin/python /root/esp32_gimbal/gimbal_bridge.py\n";
