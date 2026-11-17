@@ -221,10 +221,50 @@ if ($Flash -and -not $Port) {
         }
     } catch { }
 
+    # ── 备用检测：主检测失败时，逐个检查所有串口的 DeviceID ─────────────
+    #
+    # 为什么需要（2026-11-17 踩到）：
+    #   用户把 ESP32 插到 PC，设备管理器显示 COM5 = VID_303A&PID_1001，
+    #   但上面的 Win32_PnPEntity 查询在某些 pwsh 上下文里返回空，
+    #   导致 $cands 为空、误报「没找到 ESP32」。
+    #   绕过验证：直接用 -Port COM5 能正常烧录。
+    #
+    # 这里加一层兜底：查注册表 SERIALCOMM 拿到所有 COM 口，
+    # 再用 PnP 的 DeviceID 反查 VID。还不行就提示用户手动指定。
     if ($cands.Count -eq 0) {
-        Say "  没找到 ESP32（VID_303A 或 VID_1A86）。USB 线插了吗？" "Red"
-        Say "  可用端口：" "Yellow"
+        Say "  主检测未找到，尝试备用方式..." "Yellow"
+        try {
+            $reg = Get-ItemProperty 'HKLM:\HARDWARE\DEVICEMAP\SERIALCOMM' -ErrorAction SilentlyContinue
+            if ($reg) {
+                foreach ($prop in $reg.PSObject.Properties) {
+                    if ($prop.Name -like 'PS*') { continue }
+                    $comName = $prop.Value
+                    Say ("    注册表发现串口: {0}  (来源: {1})" -f $comName, $prop.Name)
+                    # 反查这个 COM 口是不是 ESP32
+                    $dev = Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
+                           Where-Object { $_.Name -match "$comName" } |
+                           Select-Object -First 1
+                    if ($dev -and $dev.DeviceID -match 'VID_303A') {
+                        $cands += [pscustomobject]@{ Com = $comName; Vid = "303A"; Pid = "1001"; Name = $dev.Name }
+                        Say ("    ✓ {0} 是 ESP32（注册表兜底识别）" -f $comName) "Green"
+                    }
+                }
+            }
+        } catch { }
+    }
+
+    if ($cands.Count -eq 0) {
+        Say "" 
+        Say "  没找到 ESP32（VID_303A 或 VID_1A86）。" "Red"
+        Say ""
+        Say "  如果确认 USB 线已插好，请手动指定端口：" "Yellow"
+        Say "    pwsh -File build.ps1 -Flash -Port COM5" "Yellow"
+        Say ""
+        Say "  当前系统所有串口：" "Yellow"
         [System.IO.Ports.SerialPort]::GetPortNames() | ForEach-Object { Say "    $_" }
+        Say ""
+        Say "  查看设备详情（确认是 ESP32）：" "Yellow"
+        Say "    Get-CimInstance Win32_PnPEntity | Where-Object { \$_.Name -match 'COM' } | Format-List Name,DeviceID" "Yellow"
         exit 1
     }
     foreach ($c in $cands) { Say ("  {0}  VID_{1} PID_{2}  {3}" -f $c.Com, $c.Vid, $c.Pid, $c.Name) }
