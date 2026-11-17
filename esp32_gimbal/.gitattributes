@@ -31,18 +31,23 @@
 # ── Python 运维工具：不计入语言统计 ────────────────────────────────
 #   桥接/验证/诊断脚本，不是产品主体代码。
 #   vendored 的语义是「第三方或辅助代码」，对应这里的定位。
-host/*.py           linguist-vendored
-gimbal_bridge.py    linguist-vendored
-usb_cdc_serial.py   linguist-vendored
+#
+#   ★ 同时加 linguist-detectable=false 做双保险：
+#     按 Linguist 文档，linguist-vendored 的语义是 "Excluded from stats"，
+#     而 linguist-detectable=false 是更直接的「不视为代码」。
+#     两个都写，避免某些边界情况下只生效一个。
+host/*.py              linguist-vendored linguist-detectable=false
+gimbal_bridge.py       linguist-vendored linguist-detectable=false
+usb_cdc_serial.py      linguist-vendored linguist-detectable=false
 
 # ── Shell / PowerShell 运维脚本：不计入 ────────────────────────────
 #   ★ 注意 host/run_tracking.ps1 在子目录里，单靠 *.ps1 盖不住，
 #     必须显式写 host/*.ps1（2026-11-17 实测踩到：漏了这条，
 #     统计里还剩一个 6 KB 的 PowerShell）
-host/*.sh   linguist-vendored
-host/*.ps1  linguist-vendored
-*.ps1       linguist-vendored
-*.sh        linguist-vendored
+host/*.sh   linguist-vendored linguist-detectable=false
+host/*.ps1  linguist-vendored linguist-detectable=false
+*.ps1       linguist-vendored linguist-detectable=false
+*.sh        linguist-vendored linguist-detectable=false
 
 # ── 文档 / 数据文件 ────────────────────────────────────────────────
 *.md        linguist-documentation
