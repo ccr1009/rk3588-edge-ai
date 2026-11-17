@@ -1,18 +1,38 @@
 # ESP32-S3 舵机云台 — RK3588 视觉追踪执行器
 
-![云台视觉追踪闭环实时画面](docs/images/tracking_closed_loop.jpg)
+## 实拍：整套系统在跑
 
-*板端真实运行截图（`http://<board-ip>:8080`）：顶部 HUD 显示
-`NPU 16.8 ms + Dec 1.3 ms | 26.9 FPS | Gimbal P-90.0 T+0.0 | TRACK | objs 1`
-—— 绿色十字准星对准目标，蓝色 3D 线框贴着人被检出（8.2m），
-右上 BEV 雷达显示目标距离 1.8m。**这是 RK3588 检测 + ESP32 舵机驱动的真闭环**，
-不是仿真。*
+![云台实物与追踪画面](docs/images/gimbal_setup.jpg)
+
+*桌面实拍（2026-11-17）：左侧 RK3588 板子，中间两颗 DS3120 舵机搭的云台，
+右边显示器上是板端 `http://<board-ip>:8080` 的实时画面。*
+
+**屏幕上那行 HUD 就是证据**：
+```
+NPU 17.0 ms + Dec 3.2 ms | 30.0 FPS | Gimbal P+12.3 T-16.4 | LOCK
+```
+- `30.0 FPS` —— 已达相机硬件上限（`v4l2` 报 30fps，纯 CPU 路径也只有 29.96fps）
+- `Gimbal P+12.3 T-16.4` —— 云台当前姿态，`LOCK` 表示目标已锁定在画面中心
+- 蓝框 `person 87%`（496×427）+ 黄框 `cell phone 43%` —— NPU 同时检出两个目标
+
+绿色十字是画面中心，蓝框中心与它重合 = 闭环收敛。
+
+## 实拍：追踪过程
+
+<video src="docs/images/tracking_demo.mp4" controls muted width="360"></video>
+
+> 如果上面的播放器不显示，直接下载看：
+> [`docs/images/tracking_demo.mp4`](docs/images/tracking_demo.mp4)
+> （720×1280 竖屏，488 帧 / 16.3 秒 / 30 fps）
+
+*手机前置摄像头拍的是显示器画面：人左右移动，云台带着摄像头跟着转，
+检测框始终套在人身上。**RK3588 检测 + ESP32 舵机驱动的真闭环**，不是仿真。*
 
 > 状态栏里的 `TRACK` / `SATURATED` 是云台状态：
-> **TRACK** = 正在跟踪目标；**SATURATED** = 舵机已顶到软限位（见下方"角度定义"）。
+> **TRACK** = 正在跟踪目标；**LOCK** = 目标已在死区内；**SATURATED** = 舵机已顶到软限位。
 
 <details>
-<summary>另一张：舵机顶到限位时的画面（<code>SATURATED</code>）</summary>
+<summary>补充：舵机顶到限位时的画面（<code>SATURATED</code>）</summary>
 
 ![舵机饱和](docs/images/servo_saturated.jpg)
 

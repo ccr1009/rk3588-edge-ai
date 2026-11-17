@@ -6,6 +6,9 @@ __pycache__/
 *.rknn
 *.mp4
 *.avi
+# 例外：docs/images/ 里的演示视频是正式素材，必须提交
+#   （2.3 MB / 16 秒，实拍云台追踪过程，README 首页引用）
+!esp32_gimbal/docs/images/tracking_demo.mp4
 data/
 outputs/
 build/
