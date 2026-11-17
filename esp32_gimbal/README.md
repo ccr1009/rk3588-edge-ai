@@ -19,14 +19,18 @@ NPU 17.0 ms + Dec 3.2 ms | 30.0 FPS | Gimbal P+12.3 T-16.4 | LOCK
 
 ## 实拍：追踪过程
 
-<video src="docs/images/tracking_demo.mp4" controls muted width="360"></video>
+![云台追踪演示](docs/images/tracking_demo.gif)
 
-> 如果上面的播放器不显示，直接下载看：
+*人左右移动，云台带着摄像头跟着转，检测框始终套在人身上。
+**RK3588 检测 + ESP32 舵机驱动的真闭环**，不是仿真。*
+
+> GIF 是从原视频抽帧压缩的（41 帧 / 2.5 fps / 3.1 MB）——
+> **GitHub 的 markdown 会过滤 `<video>` 标签**，只有指向它自己 user-attachments
+> 主机的视频才被接受，`raw.githubusercontent.com` 的会被直接删掉。
+> 所以内嵌只能用 GIF（或点下面链接看原视频）。
+>
+> 原视频（全画质 30 fps / 16.3 秒 / 2.3 MB）：
 > [`docs/images/tracking_demo.mp4`](docs/images/tracking_demo.mp4)
-> （720×1280 竖屏，488 帧 / 16.3 秒 / 30 fps）
-
-*手机前置摄像头拍的是显示器画面：人左右移动，云台带着摄像头跟着转，
-检测框始终套在人身上。**RK3588 检测 + ESP32 舵机驱动的真闭环**，不是仿真。*
 
 > 状态栏里的 `TRACK` / `SATURATED` 是云台状态：
 > **TRACK** = 正在跟踪目标；**LOCK** = 目标已在死区内；**SATURATED** = 舵机已顶到软限位。
