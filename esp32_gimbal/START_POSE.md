@@ -150,12 +150,84 @@ float cur_tilt = isnan(px->cfg.start_tilt) ? 0.f : px->cfg.start_tilt;
 
 ---
 
-## 七、遗留问题
+## 七、丢目标回位（v6 新增，2026-11-17）
 
-**看不到目标时仍然会往错误方向漂。** 现在的启动姿态能保证"一开始能看到人"，
-但如果人长时间离开画面（比如走出房间），控制律还是会慢慢把云台推偏。
+### 问题
 
-**建议的下一步改进**：加"连续 N 帧无可追目标 → 回到启动姿态"的逻辑。
-这样人回来时能自动重新找到，而不是卡在某个角落。
+启动姿态解决了"一开始能看到人"，但人离开画面后：
 
-（本次未做，因为用户在测试中，不想引入行为变化。）
+```
+看不到 → has_target=false → 控制律不动作 → 云台停在原地
+```
+
+如果之前追错方向已经推偏（实测顶到 P-90），人回来也找不到。
+
+### 解决
+
+连续 `lost_home_frames` 帧（默认 30 ≈ 1.2 秒 @25fps）没有可追目标时，
+**回到启动姿态**。
+
+```bash
+--lost-home-frames 30     # 0 = 不启用
+```
+
+### 为什么回到"启动姿态"而不是"中位 P0 T0"
+
+中位是朝天花板的，回去也是白回。启动姿态是确认过"能看到人"的角度。
+
+### 三道保护
+
+1. `lost_home_frames == 0` 时完全不启用（向后兼容）
+2. 没设启动姿态时回到中位（否则没地方可回）
+3. `homed_after_lost` 标志防止每帧重复发（省串口带宽、少舵机磨损）
+
+### 实测验证
+
+```
+[+] 启动姿态: P +5.0 -20.0（等待到位）
+P+0.7 T-16.7 TRACK              ← 正常追踪
+P+13.6 T-16.6 TRACK
+P+19.7 T-19.7 TRACK
+[gimbal] 丢目标 30 帧，回到启动姿态 P +5.0 -20.0    ← ★ 回位触发
+P+1.8 T-15.7 LOCK               ← 重新锁定
+P+6.8 T-12.2 TRACK
+```
+
+### 实现中的坑
+
+`lost_frames` 的自增必须放在 `if` 外面只做一次。第一版写成：
+
+```cpp
+if (++lost_frames > N && cfg.lost_home_frames > 0 && !homed) { ... }
+```
+
+条件短路会导致自增次数不确定。改成：
+
+```cpp
+++lost_frames;                      // 先累加，只做一次
+if (lost_frames > 30) { ... }       // 原语义
+if (cfg.lost_home_frames > 0 &&
+    lost_frames > cfg.lost_home_frames &&
+    !homed_after_lost) { ... }      // 回位
+```
+
+---
+
+## 八、完整服务配置（v6）
+
+```ini
+[Service]
+WorkingDirectory=/root/lab
+ExecStart=/root/lab/v6_home /dev/video83 --bridge 127.0.0.1:9100 --no-3d --start-pan 5 --start-tilt -20 --lost-home-frames 30
+KillMode=mixed
+KillSignal=SIGKILL
+TimeoutStopSec=5
+```
+
+### 版本对照
+
+| 版本 | 功能 |
+|---|---|
+| v4 | 流水线 + P1 + P3 |
+| v5 | + 启动姿态（`--start-pan/--start-tilt`） |
+| **v6** | **+ 丢目标回位（`--lost-home-frames`）** |
