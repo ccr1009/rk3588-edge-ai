@@ -70,3 +70,9 @@ esp32_gimbal/host/results_*.txt
 
 # 目录改名时的文件备份（2026-11-13）
 _rename_backup_*/
+
+# 2026-11-17 抢救备份目录（不入库）
+_rescue_*/
+*.bak_*
+*.before_rescue_*
+

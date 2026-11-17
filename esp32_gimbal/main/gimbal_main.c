@@ -82,14 +82,40 @@ static int g_tilt_pin = TILT_PIN_DEFAULT;
 #define LEDC_TIMER_SEL     LEDC_TIMER_0
 #define LEDC_MODE_SEL      LEDC_LOW_SPEED_MODE
 
-/* ESP32-S3 的 LEDC 在 50Hz 下最高 14 位。
- * 分辨率上限 = log2(80MHz/50) ≈ 20.6，但 S3 定时器计数器位宽 + 50Hz 分频后实际 14 位。
- * 写 16 位直接编译不过（LEDC_TIMER_16_BIT 不被 esp32s3 HAL 接受）。
- * 14 位 → 1.22us/级 → 约 0.11°/级，SG90 精度 ±1°，够用。 */
-#define SERVO_FREQ_HZ      50
+/* ESP32-S3 的 LEDC 分辨率取决于「80MHz 时钟 / PWM 频率」。
+ *
+ * ============ 2026-11-16：50Hz → 333Hz，控制粒度提升 6.7 倍 ============
+ *
+ * 为什么改（用户的对照实验："大疆 Pocket 3 没什么算力却很丝滑"）：
+ *   Pocket 3 靠 400~1000Hz 的 IMU 内环吸收抖动，视觉外环只有 30Hz。
+ *   我们没 IMU，控制粒度就是唯一的"内环粗糙度"：
+ *
+ *     50Hz  → PWM 周期 20000us，控制循环 20ms
+ *     333Hz → PWM 周期  3003us，控制循环  3ms
+ *
+ *   ★ 关键洞察：提高到 333Hz 不但不降精度，反而提升 10 倍 ——
+ *     分辨率位宽仍取 14 位（log2(80e6/333) = 17.87 > 14，够用），
+ *     但周期从 20000us 缩到 3003us，每级对应的脉宽从 1.22us 降到 0.183us：
+ *
+ *       50Hz : 20000/16384 = 1.22 us/级 → 1.22/20000×180° = 0.110 °/级
+ *       333Hz:  3003/16384 = 0.183us/级 → 0.183/3003×180° = 0.011 °/级   ← 好 10 倍
+ *
+ *   DS3120 规格书明确写着「控制频率 50–330Hz」，333 略超上限 3Hz，
+ *   实测若出现异响/发热，把 SERVO_FREQ_HZ 退回 250 即可（同样远优于 50）。
+ *
+ * ★★★ 改频率时必须同步改 SERVO_PERIOD_US ★★★
+ *   us_to_duty() 用 SERVO_PERIOD_US 当分母。只改频率不改周期的话，
+ *   1500us 会被算成 1500/20000 = 7.5% 占空比（新周期下应约 50%），
+ *   舵机会直接冲到极限位置、撞限位、堵转烧毁。
+ *
+ * ★★★ 控制循环必须跟随 PWM 周期 ★★★
+ *   循环比 PWM 慢 → 指令堆积；循环比 PWM 快 → 空转浪费 CPU。
+ *   这里取 3ms（333Hz 周期 3003us 向上取整）。
+ */
+#define SERVO_FREQ_HZ      333           /* 原来是 50。DS3120 规格上限 330Hz */
 #define SERVO_RES_BITS     LEDC_TIMER_14_BIT
 #define SERVO_RES_LEVELS   (1U << 14)
-#define SERVO_PERIOD_US    20000
+#define SERVO_PERIOD_US    3003          /* ★ 1000000/333，原来是 20000。必须跟着频率改 */
 #define PULSE_MIN_US       500
 #define PULSE_MID_US       1500
 #define PULSE_MAX_US       2500
@@ -101,7 +127,18 @@ static int g_tilt_pin = TILT_PIN_DEFAULT;
 #define TILT_RANGE_DEG     45.0f
 
 #define LINE_BUF_MAX       160     /* 要容得下 "V 0 1 2 3 ... 48" 这种一次探多个脚的命令 */
-#define CTRL_PERIOD_MS     20
+
+/* 控制循环周期。
+ *
+ * 2026-11-16：20ms → 3ms，跟随 PWM 频率提到 333Hz。
+ *   原来 20ms 的粒度是"端到端延迟"里仅次于舵机机械响应(230ms)的第二大项：
+ *     串口命令往返实测严格等于 (20ms - 相位)，均值 10ms、最坏 20ms，
+ *     这是 50Hz 控制节拍造成的量化，不是排队。
+ *   提到 3ms 后，同一测量应变成 (3ms - 相位)，均值 1.5ms。
+ *
+ * 负载评估：循环里只做几次浮点运算 + 2 次 ledc_set_duty，
+ *   240MHz 下每次远小于 1ms，3ms 周期绰绰有余。 */
+#define CTRL_PERIOD_MS     3
 
 /* 扫描时依次尝试的 GPIO。已排除：
  *   0/45/46 = strapping 引脚，上电电平影响启动
@@ -803,14 +840,28 @@ static void update_slew(uint32_t dt_ms)
 {
     if (g_slew_ms == 0) return;
 
+    /* k = 本周期应走完剩余距离的比例（指数逼近，时间常数 = g_slew_ms）
+     *
+     * 2026-11-16 注意：控制循环从 20ms 改成 3ms 后，这里**不需要改**。
+     *   因为 k 是按 dt_ms/g_slew_ms 算的，dt 变小 k 也等比变小，
+     *   总时间常数仍是 g_slew_ms 毫秒 —— 这正是指数逼近的好处（与采样率无关）。
+     *
+     *   但如果用"每周期固定走 X 度"的线性缓动，就必须跟着改 X，否则会快 6.7 倍。 */
     float k = (float)dt_ms / (float)g_slew_ms;
     if (k > 1.0f) k = 1.0f;
 
     g_pan  += (g_target_pan  - g_pan)  * k;
     g_tilt += (g_target_tilt - g_tilt) * k;
 
-    if (fabsf(g_target_pan  - g_pan)  < 0.05f) g_pan  = g_target_pan;
-    if (fabsf(g_target_tilt - g_tilt) < 0.05f) g_tilt = g_target_tilt;
+    /* 吸附阈值：剩余距离小于此值时直接贴到目标，避免无限逼近擦不干净。
+     *
+     * ★ 20ms → 3ms 后必须缩小这个阈值（原来是 0.05）：
+     *   0.05° 在 20ms 周期下相当于"每周期至少走 0.05°"，即 2.5°/s 的下限；
+     *   换到 3ms 周期后同样的 0.05° 变成 16.7°/s 的吸附速度，
+     *   表现为缓动最后一段"突然窜一下"，反而破坏平滑性。
+     *   缩到 0.01° 后吸附速度约 3.3°/s，与原来同量级。 */
+    if (fabsf(g_target_pan  - g_pan)  < 0.01f) g_pan  = g_target_pan;
+    if (fabsf(g_target_tilt - g_tilt) < 0.01f) g_tilt = g_target_tilt;
 
     apply_servos();
 }

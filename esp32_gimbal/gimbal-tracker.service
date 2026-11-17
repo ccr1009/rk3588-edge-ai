@@ -1,0 +1,17 @@
+[Unit]
+Description=EdgeVision Gimbal Head Tracker (v2)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/lab
+ExecStart=/root/lab/w4_edgevision_gimbal_preview.v2 /dev/video83 --bridge 127.0.0.1:9100 --no-3d
+Restart=no
+StandardOutput=append:/tmp/gimbal_v2.log
+StandardError=append:/tmp/gimbal_v2.log
+KillMode=mixed
+KillSignal=SIGKILL
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

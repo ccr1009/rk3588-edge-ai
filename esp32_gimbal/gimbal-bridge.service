@@ -1,0 +1,16 @@
+[Unit]
+Description=EdgeVision Gimbal USB Bridge (TCP 9100 -> pyusb -> ESP32)
+After=network.target
+Before=gimbal-tracker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/esp32_gimbal
+ExecStart=/root/rknn_env/bin/python /root/esp32_gimbal/gimbal_bridge.py --port 9100
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/tmp/gimbal_bridge.log
+StandardError=append:/tmp/gimbal_bridge.log
+
+[Install]
+WantedBy=multi-user.target
