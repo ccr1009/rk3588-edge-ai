@@ -625,6 +625,19 @@ struct ControlCfg {
     float start_pan  = NAN;
     float start_tilt = NAN;
 
+    // ── 丢目标回位（2026-11-17 新增）────────────────────────────
+    //
+    // 为什么需要：
+    //   人离开画面后，控制律不动作，云台停在原地。
+    //   如果之前追错方向已经推偏了，就永远停在那里，人回来也找不到。
+    //
+    // 逻辑：连续 lost_home_frames 帧没有可追目标时，回到启动姿态。
+    //   0 = 不启用（保持原行为）。
+    //
+    // 为什么回到"启动姿态"而不是"中位 P0 T0"：
+    //   中位是朝天花板的，回去也是白回。启动姿态是确认过"能看到人"的角度。
+    int lost_home_frames = 30;      // 约 1.2 秒 @ 25fps
+
     float tilt_safe_min = -35.0f;
     float tilt_safe_max = -5.0f;
     // ★ invert_pan 与 --rotate 强耦合，推导见文件头注释，结论：
@@ -1726,6 +1739,8 @@ static uint64_t g_prof_last_a = 0, g_prof_last_c = 0;
 // 最近一帧的控制状态，供 profile 行打印（用于和串行版对账"云台还在正常工作"）
 static std::atomic<float>    g_prof_pan{0.f};
 static std::atomic<float>    g_prof_tilt{0.f};
+static std::atomic<int>      g_ctrl_sent_placeholder{0};   // 占位（避免改动插入点）
+static std::atomic<int>      g_home_on_lost{0};           // 丢目标回位次数（2026-11-17）
 static std::atomic<int>      g_prof_state{0};     // 0=LOST 1=TRACK 2=LOCK 3=SATURATED 4=NO_GOOD_TGT
 static std::atomic<int>      g_prof_rejected{0};
 
@@ -2154,6 +2169,7 @@ static void* thread_b_infer(void* arg) {
     float cur_tilt = isnan(px->cfg.start_tilt) ? 0.f : px->cfg.start_tilt;
     bool locked = false;
     int lost_frames = 0;
+    bool homed_after_lost = false;   // 丢目标后是否已经回过位（避免每帧重复发）
     // 低通滤波状态 + settle 暂停（原样保留，语义见原注释）
     float sm_cx = 0.5f, sm_cy = 0.5f;
     bool sm_init = false;
@@ -2273,6 +2289,7 @@ static void* thread_b_infer(void* arg) {
         if (px->gimbal_on) {
             if (has_target) {
                 lost_frames = 0;
+                homed_after_lost = false;    // 重新捕获到目标，清掉回位标志
 
                 bool accept = true;
                 if (px->cfg.smooth_alpha > 0.f) {
@@ -2310,7 +2327,40 @@ static void* thread_b_infer(void* arg) {
                     // 现在由 C 用同样的规则重画（目标点坐标随结果传过去）。
                 }
             } else {
-                if (++lost_frames > 30) { locked = false; sm_init = false; }
+                // ── 丢目标回位（2026-11-17）──────────────────────────
+                //
+                // 连续 N 帧看不到可追目标时，回到启动姿态。
+                //
+                // 为什么必须做：人离开画面后控制律不动作，云台停在原地。
+                // 如果之前追错方向已经推偏（实测会顶到 P-90），人回来也找不到。
+                // 回到"确认过能看到人"的启动姿态，人一回来就能重新锁定。
+                //
+                // 三道保护：
+                //   1. lost_home_frames == 0 时完全不启用（保持向后兼容）
+                //   2. 没设启动姿态时回到中位（否则没地方可回）
+                //   3. homed_after_lost 标志防止每帧重复发（省串口带宽、少舵机磨损）
+                ++lost_frames;                     // 先累加（只加一次，别在 if 里自增）
+                if (lost_frames > 30) {            // 原语义：超 30 帧认定丢失
+                    locked = false;
+                    sm_init = false;
+                }
+
+                if (px->cfg.lost_home_frames > 0 &&
+                    lost_frames > px->cfg.lost_home_frames &&
+                    !homed_after_lost) {
+                    // 目标姿态：优先启动姿态，没设就回中位
+                    float hp = isnan(px->cfg.start_pan)  ? 0.f : px->cfg.start_pan;
+                    float ht = isnan(px->cfg.start_tilt) ? 0.f : px->cfg.start_tilt;
+
+                    cur_pan  = hp;
+                    cur_tilt = ht;
+                    px->gimbal->set_target(cur_pan, cur_tilt);
+                    g_ctrl_sent++;
+                    homed_after_lost = true;
+                    g_home_on_lost++;         // 计数，供观察
+                    printf("[gimbal] 丢目标 %d 帧，回到启动姿态 P %+.1f %+.1f\n",
+                           px->cfg.lost_home_frames, hp, ht);
+                }
             }
         }
         auto t4 = std::chrono::steady_clock::now();
@@ -2706,6 +2756,8 @@ int main(int argc, char* argv[]) {
         //   解决"中位看不到人 → 往错误方向追到限位"的问题。
         else if (strcmp(argv[i], "--start-pan")  == 0 && i + 1 < argc) cfg.start_pan  = atof(argv[++i]);
         else if (strcmp(argv[i], "--start-tilt") == 0 && i + 1 < argc) cfg.start_tilt = atof(argv[++i]);
+        // --lost-home-frames N：丢目标 N 帧后回到启动姿态（0 = 不启用）
+        else if (strcmp(argv[i], "--lost-home-frames") == 0 && i + 1 < argc) cfg.lost_home_frames = atoi(argv[++i]);
         else if (strcmp(argv[i], "--min-score") == 0 && i + 1 < argc) cfg.min_score = atof(argv[++i]);
         else if (strcmp(argv[i], "--no-invert-pan") == 0) { cfg.invert_pan = false; invert_pan_explicit = true; }
         else if (strcmp(argv[i], "--invert-pan") == 0) { cfg.invert_pan = true; invert_pan_explicit = true; }
