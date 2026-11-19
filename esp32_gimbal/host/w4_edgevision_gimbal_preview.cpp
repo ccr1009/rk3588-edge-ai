@@ -93,29 +93,24 @@
 #include <rknn_api.h>
 
 // ----------------------------------------------------------------
-//  9000 检测结果协议（与 lab/w4_edgevision_gateway.cpp 逐字节一致）
-//  为什么必须一致：Agent（lab/agent/rkllm_embodied_agent.cpp）和所有
-//  既有客户端都按 248 字节定长帧解析。改了协议就是改接口契约，
-//  所有下游要跟着改 —— 所以这里原样复刻，不"优化"。
+//  9000 检测结果协议 —— 现由 lab/include/edgevision_protocol.h 统一提供
+//
+//  这里原来是"原样复刻"一份 248 字节结构体，理由是不敢动接口契约。
+//  但复刻的问题恰恰是：**改了发送端而忘了改这里，不会编译报错，只会解析出
+//  偏移错位的框** —— 画面看着像那么回事，框却贴在错误的位置上。
+//  本项目已经因为"假数据看起来像真的"栽过两次。
+//
+//  现在改成共用同一份头文件，248 字节由 static_assert 在编译期锁死：
+//  任何一端改字段，所有端一起编不过，而不是等联调时才能发现。
+//
+//  编译时需要 -I<仓库>/lab/include（见 esp32_gimbal/host/build_preview.sh）。
 // ----------------------------------------------------------------
-#define DETECT_PORT 9000
-#define MAX_BBOXES  10
+#include "edgevision_protocol.h"
 
-#pragma pack(push, 1)
-struct BBox {
-    int32_t class_id;
-    float   score;
-    float   x, y, w, h;      // 还原到原始画面像素坐标（1280x720）
-};
-struct DetectionHeader {
-    uint32_t frame_id;
-    uint32_t bbox_count;
-};
-struct FrameResult {
-    DetectionHeader header;  // 8 B
-    BBox boxes[MAX_BBOXES];  // 240 B  → 总计 248 B
-};
-#pragma pack(pop)
+#define DETECT_PORT 9000
+
+// 保留旧常量名，等价于头文件的 kMaxBBoxes
+static constexpr uint32_t MAX_BBOXES = kMaxBBoxes;
 
 // 全局运行标志。提前声明：9000 推流线程、HTTP 线程、主循环都要用它，
 // 如果放在后面的"原有工具函数"区块里，前面的线程函数就引用不到。

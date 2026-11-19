@@ -28,6 +28,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+// 248B 定长帧协议的唯一真源（见 lab/include/edgevision_protocol.h 顶部说明）
+#include "edgevision_protocol.h"
+
 #define AGENT_HTTP_PORT 8088
 #define VISION_DATA_PORT 9000
 
@@ -48,24 +51,12 @@ static const char* COCO80_NAMES[] = {
 // -------------------------------------------------------------
 // 2. 9000 端口推流协议对齐结构体
 // -------------------------------------------------------------
-#define MAX_BBOXES 10
-#pragma pack(push, 1)
-struct BBox {
-    int32_t class_id;
-    float   score;
-    float   x, y, w, h;
-};
-
-struct DetectionHeader {
-    uint32_t frame_id;
-    uint32_t bbox_count;
-};
-
-struct FrameResult {
-    DetectionHeader header;
-    BBox boxes[MAX_BBOXES];
-};
-#pragma pack(pop)
+// BBox / DetectionHeader / FrameResult 已抽出到 lab/include/edgevision_protocol.h —
+// 与发送端（9000 网关）共用同一份定义，248 字节由 static_assert 锁死。
+// 之前这里是复制品：改网关不改这里不会报错，只会解析出偏移错位的框。
+//
+// MAX_BBOXES 保留旧名字，等价于头文件的 kMaxBBoxes。
+static constexpr uint32_t MAX_BBOXES = kMaxBBoxes;
 
 static volatile sig_atomic_t g_running = 1;
 static void handle_signal(int) { g_running = 0; }

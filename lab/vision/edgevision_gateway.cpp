@@ -14,31 +14,21 @@
 #include <rknn_api.h>
 #include "rknn_engine_dfl_free.h"
 #include "postprocess.h"
+// 248B 定长帧协议的唯一真源（见 lab/include/edgevision_protocol.h 顶部说明）
+#include "edgevision_protocol.h"
 
 #define PORT 9000
 #define MODEL_PATH "/root/edgevision/data/models/yolov8n_dflfree_rk3588_i8.rknn"
-#define MAX_BBOXES 10
 
 // -------------------------------------------------------------
-// 1. 网络推流协议结构体 (与上位机 Python 严格对齐)
+// 1. 网络推流协议结构体
 // -------------------------------------------------------------
-#pragma pack(push, 1)
-struct BBox {
-    int32_t class_id;    // 0~79: COCO 80 类
-    float   score;       // 置信度
-    float   x, y, w, h;  // 还原到摄像头原始画面的像素坐标 (如 1280x720)
-};
-
-struct DetectionHeader {
-    uint32_t frame_id;
-    uint32_t bbox_count; // 实际检出目标数 (0 ~ MAX_BBOXES)
-};
-
-struct FrameResult {
-    DetectionHeader header;         // 8 字节
-    BBox boxes[MAX_BBOXES];         // 10 * 24 = 240 字节，总包长 248 字节
-};
-#pragma pack(pop)
+// 结构体已抽出到 lab/include/edgevision_protocol.h —— 发送端与 4 个消费端
+// 共用同一份定义，并有 static_assert 在编译期锁住 248 字节。
+// 这里不再重复定义（之前就是复制导致的静默错位风险）。
+//
+// MAX_BBOXES 等价于该头文件里的 kMaxBBoxes，保留这个名字只为少改业务代码。
+static constexpr uint32_t MAX_BBOXES = kMaxBBoxes;
 
 // -------------------------------------------------------------
 // 2. 图像帧缓冲区结构 (携带 letterbox 几何逆变换元数据)

@@ -1,5 +1,18 @@
 #!/bin/bash
+# build_preview.sh —— 板上原生编译"云台视觉追踪 + 实时预览"一体化程序
+#
+# 2026-11-19 变更：本程序现在 #include "edgevision_protocol.h"
+# （248B 帧协议唯一真源），-I 里必须带上 /root/lab。
+# 头文件同步：
+#   scp lab/include/edgevision_protocol.h rk3588:/root/lab/
 cd /root/lab || exit 1
+
+if [ ! -f /root/lab/edgevision_protocol.h ]; then
+    echo "[-] 缺少 /root/lab/edgevision_protocol.h（248B 协议真源）"
+    echo "    先同步：scp lab/include/edgevision_protocol.h rk3588:/root/lab/"
+    exit 1
+fi
+
 g++ -O2 -std=c++17 w4_edgevision_gimbal_preview.cpp \
     /root/edgevision/deploy/cpp/src/postprocess_dfl_free.cpp \
     -o w4_edgevision_gimbal_preview \
