@@ -34,6 +34,10 @@
 | 11 | **同名脚本多份副本，改了哪份不知道**：`vs.sh` 停在 10-29 版，缺 `numid=16 on`，用它启动网关**完全静音而日志显示播放完成**；`tk.sh` 停在旧唤醒参数 | A | **高** | ✅ 已关（10-31） | 短名全改软链接指向正本；`/root/rkllm_deploy/` 的 4 份旧 Agent 源码移入 `/root/archive/2026-10-31-dedup/`。验证：5 个短名 `readlink -f` 均指向正本，回归 20/20 全绿 |
 | 12 | **语音测量不可归因**：回路不通时 bench/e2e 仍然产出具体数字（0/10 + 10 条幻觉文本），看起来像识别率差 | A | **高** | ✅ 已关（10-31） | `/root/loop_check.sh` 播已知音频+录音+算能量台阶，<8 dB 即判回路不通并退出；已接入 `bench_voice.sh` / `test_e2e.sh` 开头。验证：耳机插着时正确报错退出，退码 1 |
 | 13 | **唤醒词"小瑞"容错不够**：回路连通下实测严格命中 **80%（8/10）**，两次失败是「角瑞」「巧瑞」——**首字错、尾字"瑞"全对**。这是稳定的误识模式 | B | 中 | **不做（10-31 决定）** | 曾计划改判据为"短文本+含瑞/锐/睿/蕊"以覆盖 X瑞 族，**用户决定保持现状**。80% 对演示够用，放宽判据会抬高环境噪声误唤醒风险，收益不抵。见"已知边界" |
+| 14 | **公开仓库曾重新泄漏板子 IP 与 root 密码**（2026-11-19 发现）：`docs/workspace/AGENTS.md` 第 102 行原文可读，由提交 `0c9f6db` 推上 `origin/main`。而该文件自己的第 282 行还写着「已推送的 origin/main 经查本就不含，实际暴露面为零」——**这句当时对、后来不成立** | A | **高** | ✅ 代码侧已关（11-19） | 6 文件 13 处全部改为 `<board-ip>` / 见本地私密记录；补 `scripts/check_secrets.sh`（8 条规则，已做反向测试：植入真值能报、清除后 0 命中）并接进 `check_repo.sh`。**⚠️ 剩余人工动作：①改板子 root 密码（唯一能让历史里那份密码失效的操作）②`git push`**。历史未重写——私网 IP 公网不可路由，改密码后旧密码即失效，为此 force-push 三个 remote 风险大于收益。若要把仓库长期挂出去，再考虑 `git filter-branch` |
+| 15 | **`edgevision.service` 长期缺失**：`control_service` 的 `kServices[]` 把 `gateway` 映射到 `edgevision`，但 `lab/services/` 里没有这个 unit，全仓、全历史、工作区都搜不到。后果：别人 clone 下来装不全系统，`control_service(gateway,start)` 直接失败 | A | 中 | ⚠️ **部分关闭（11-19）** | 已按 6 条确证事实重建 `lab/services/edgevision.service` + `/etc/default/edgevision`，并把 `edgevision-cam2.conf` 废弃为指路文件（避免"两处都能改摄像头"）。**但重建版未经板端回读校验** —— 板子在手时执行 `ssh rk3588 'cat /etc/systemd/system/edgevision.service'` 逐字比对，不一致**以板端为准**改仓库。校验前不得在 `CURRENT_STATUS.md` 写成已验证 ✅ |
+| 16 | **`scripts/run_all_tests.sh` 测的是已废弃代码**：号称 7 项全量自测，实际全打 2026-09 的 Python 原型（`track/` `tests/` `convert/` `simulate/`），而主线 `lab/agent`、`lab/vision`、`lab/voice` **零覆盖**。`docs/README.md` 还称它是"一键全系统自测套件" | A | 中 | ✅ 已关（11-19） | 改为分发器：默认只跑 PC 侧 `check_repo.sh`（8 项，30 秒），`--board` 加 `run_board_tests.sh`（regress 20 条 + explore + Agent 12 用例），早期原型测试移到 `--legacy` 显式 opt-in。板子连不上时**明确退出 2**，不静默跳过 |
+| 17 | **25 个 `lab/scripts/*.sh` 是 CRLF 行尾，在板上根本跑不起来**：`fi\r` 不是合法关键字，bash 报 `syntax error: unexpected end of file from 'if' command` —— 错误信息指向"缺 fi"，会把人往错方向查。`.gitattributes` 早就写了 `*.sh text eol=lf`，但这些是历史入库、工作区从未重新 checkout | A | 低 | ✅ 已关（11-19） | 统一转 LF（只改行尾，不碰任何其他字节）。校验：`bash -n` 全部 155 个 .sh 通过，工作区 CRLF 计数 0 |
 
 ---
 
@@ -41,9 +45,16 @@
 
 | 工具 | 作用 | 能发现什么 | 发现不了什么 |
 | :--- | :--- | :--- | :--- |
+| `scripts/check_repo.sh`（8 项，**无需板子**） | 每次改动后的最低成本体检 | 凭据泄漏、248B 协议漂移、.py/.sh 语法、unit 缺失、文档口径、构建产物误提交 | 任何运行期行为 |
+| `scripts/check_secrets.sh`（8 条规则） | 防止密码再次被推送 | 板子密码明文、RFC1918 私网 IP、引号内 password 字面量 | 已经推上去的历史（需 `--all`） |
 | `lab/tests/regress.py`（20 条） | 守护**已知**行为 | 改动引入的回归；用期望词 + **禁止词**双向断言 | 没想到的场景 |
 | `lab/tests/explore.py`（15 项+3 副作用） | 撞**未知**边界 | 注入、状态矛盾、越权、编造、崩溃、资源泄漏 | 需要人判断的质量问题 |
 | `lab/tests/test_e2e.sh` + 声学回路 | 语音全链路自测 | 唤醒→识别→回答→播报的端到端时延与自激 | 音质、真实环境噪声、远场 |
+
+> **2026-11-19 补充的原则**：`scripts/run_all_tests.sh` 现在是分发器。
+> 不加参数只跑 PC 侧（**任何改动后都该跑，30 秒**），`--board` 才碰硬件。
+> 这样区分的原因是：两类测试代价差三个数量级，混在一个入口里必然导致
+> "要么全跑太慢、要么为了快而跳过" —— 而后者正是本项目之前的实际状态。
 
 **这一轮的实证**：`explore.py` 跑 2 分钟、无需人参与，发现 2 个此前没人报过的问题
 （LED 枚举缺失、道谢触发工具调用），都是代码级可修的 A 类。

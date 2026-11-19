@@ -241,7 +241,12 @@ dmesg | grep -i 'used:' | tail -3
 
 ## Agent 能控什么
 
-Agent 通过 `control_service` 工具管理 **7 个服务别名 / 6 个 systemd unit**，支持 `start` / `stop` / `status`。
+Agent 通过 `control_service` 工具管理 **6 个服务别名 / 7 个 systemd unit**，支持 `start` / `stop` / `status`。
+
+> **为什么别名 6 个而 unit 7 个**：`tts-daemon` 不单独暴露给 Agent —— 它由
+> `voice-gateway.service` 的 `Wants=tts-daemon.service` 拉起，随语音网关一起生灭
+> （TTS 常驻是为了摊掉 3.70 s 的模型加载，单独控制它没有意义）。
+> 别名表见 `lab/agent/rkllm_embodied_agent.cpp` 的 `kServices[]`。
 
 | 你说 | Agent 做什么 | 占摄像头 | unit |
 | :--- | :--- | :---: | :--- |

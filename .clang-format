@@ -1,0 +1,92 @@
+# ============================================================================
+#  .clang-format —— C++ 代码风格约定（**只做约定，不自动重排**）
+#
+#  重要：本文件的存在**不代表**马上就要跑 `clang-format -i`。
+#    对一个已经写了 2 万多行、且只能在板端编译验证的工程做一次性全量 reformat，
+#    会产生数千行纯格式 diff，把真实改动完全淹没；而且改完无法在 PC 上验证。
+#    那是"看起来规范了、实际风险更大"的操作。
+#
+#  它的用途是：
+#    ① 新写的代码有统一参考，不用每次纠结缩进几格
+#    ② 想对**单个文件**规范时，可以显式执行：
+#         clang-format -i lab/vision/edgevision_gateway.cpp
+#       （改了哪个就格式化哪个，diff 可控）
+#    ③ IDE 里保存时自动格式化，只影响自己新写的部分
+#
+#  风格选择依据（跟着现有代码走，不是照搬某个模板）：
+#    · 缩进 4 空格 —— 现有 .cpp/.h 全部如此
+#    · 指针左贴类型（`const char* s`）—— 现有代码的写法
+#    · 不限列宽 —— 代码里有大量长注释行和长字符串，限宽会强行拆开，
+#      反而把「一句话讲清一个坑」的注释拆碎
+#    · 保留 namespace 内不缩进 —— 现有代码风格
+# ============================================================================
+
+BasedOnStyle: LLVM
+
+Language: Cpp
+
+# ---- 缩进 -------------------------------------------------------------------
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+NamespaceIndentation: None
+IndentCaseLabels: false
+IndentPPDirectives: None
+
+# ---- 行宽 -------------------------------------------------------------------
+# 0 表示不自动折行。见文件头说明：这个项目的注释是"讲清一个坑"的风格，
+# 折行会破坏可读性。
+ColumnLimit: 0
+
+# ---- 空格 -------------------------------------------------------------------
+PointerAlignment: Left
+ReferenceAlignment: Left
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesInAngles: false
+SpaceAfterCStyleCast: false
+
+# ---- 换行 -------------------------------------------------------------------
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+BinPackArguments: true
+BinPackParameters: true
+
+# ---- 对齐 -------------------------------------------------------------------
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: false
+# 不强制对齐 —— 现有代码里"对齐"的地方是人工为可读性排的，
+# 强制对齐会在每次改动时产生无意义 diff。
+
+# ---- 头文件 -----------------------------------------------------------------
+SortIncludes: false
+# 不自动排序：#include 的顺序在这里有语义
+# （"rknn_engine_dfl_free.h" 必须在 rknn_api.h 之后，opencv 在前等），
+# 自动排序会改变编译行为。
+
+IncludeBlocks: Preserve
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# ---- 其它 -------------------------------------------------------------------
+MaxEmptyLinesToKeep: 2
+ReflowComments: false
+# 不重排注释 —— 中文注释里断句和标点依赖人工排版。
+
+Standard: c++17
+
+# ---------------------------------------------------------------------------
+#  派生配置：不同目录的既有风格略有差别，这里只区分头文件
+# ---------------------------------------------------------------------------
+---
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 0
+PointerAlignment: Left
+SortIncludes: false
+ReflowComments: false
+Standard: c++17

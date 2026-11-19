@@ -1,0 +1,93 @@
+# ============================================================================
+#  .editorconfig —— 让编辑器自动遵守本项目的编码规则
+#
+#  为什么需要它：
+#    这个项目有两个反复踩过的编码坑，都能用配置文件从源头避免：
+#
+#    ① CRLF 行尾进 shell 脚本 → `fi\r` 不是合法关键字，bash 报
+#       "syntax error: unexpected end of file from 'if' command"，
+#       错误信息指向"缺 fi"，把人往错误方向查半天。
+#       2026-11-19 实测发现 lab/scripts/ 下 25 个 .sh 就是这个问题。
+#
+#    ② BOM 污染含中文的 UTF-8 文件 → PowerShell 的 Out-File/Set-Content
+#       默认会加 BOM，导致中文损坏、git commit message 在 git log 里变乱码。
+#
+#  .editorconfig 是目前最通用的方案（VS Code / CLion / Vim / Sublime 都支持），
+#  比"记得手动设置"可靠。注意：它只影响编辑器行为，**不改变已有文件**。
+#
+#  ⚠️ 本文件只做约定，不做格式化。全仓库一次性 reformat 会产生数千行
+#     无意义 diff，把真实改动淹没，而且无法在板端验证 —— 那是另一个决定。
+# ============================================================================
+
+root = true
+
+# ---- 全局默认 ----------------------------------------------------------------
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+# 行尾空格一律去掉；Markdown 例外（行尾两个空格是硬换行语义）
+trim_trailing_whitespace = true
+
+# 缩进：用空格，不用 Tab
+indent_style = space
+indent_size = 4
+
+
+# ---- C / C++ ----------------------------------------------------------------
+[*.{c,cpp,cc,cxx,h,hpp}]
+indent_size = 4
+# 头文件里 #pragma pack(1) + static_assert 的写法依赖缩进可读性，保持 4 空格
+
+[*.{cmake,txt}]
+indent_size = 4
+
+
+# ---- Python -----------------------------------------------------------------
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+
+# ---- Shell ------------------------------------------------------------------
+# 行尾必须是 LF —— 见文件头第 ① 条。这条是 25 个 CRLF 脚本的直接教训。
+[*.sh]
+indent_size = 4
+
+# 板端脚本通常没有 .sh 后缀，也要管住
+[{Makefile,makefile}]
+indent_style = tab
+
+
+# ---- 配置 / 数据 ------------------------------------------------------------
+[*.{json,yml,yaml,toml,ini,cfg,conf,default,service}]
+indent_size = 2
+
+# systemd unit 与 drop-in：LF + 2 空格缩进
+[*.{service,default,conf}]
+indent_size = 2
+end_of_line = lf
+
+
+# ---- 文档 -------------------------------------------------------------------
+[*.md]
+# Markdown 里行尾两空格 = 硬换行，不能裁掉
+trim_trailing_whitespace = false
+indent_size = 2
+# 中文文档不折行，靠编辑器软换行
+
+[*.{txt,log}]
+indent_size = 4
+
+
+# ---- 明确不参与 --------------------------------------------------------------
+# 这些是历史草稿与早期原型，不强制规范（改了会制造无意义 diff）
+[lab/drafts/**]
+indent_size = 4
+
+# 二进制/生成物不该被编辑器改写
+[*.{jpg,jpeg,png,gif,mp4,rknn,onnx,so,bin,whl}]
+end_of_line = unset
+insert_final_newline = false
+trim_trailing_whitespace = false

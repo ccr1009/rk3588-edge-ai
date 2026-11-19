@@ -90,7 +90,10 @@ rk3588-edge-ai/
 │   ├── download_assets.sh      # 权重拉取与高拟真测试视频合成
 │   ├── run_demo.sh             # 一键端到端运行多线程 Demo
 │   ├── run_benchmark.sh        # 一键运行精度与吞吐基准测试
-│   └── run_all_tests.sh        # 一键运行全系统自测套件
+│   ├── run_all_tests.sh        # 测试总入口：默认跑 PC 侧仓库体检，--board 加板端回归
+│   ├── check_repo.sh           # PC 侧仓库体检（凭据/协议/语法/unit/口径，无需板子）
+│   ├── run_board_tests.sh      # 板端主线回归（regress 20 条 + explore + Agent 12 用例）
+│   ├── check_secrets.sh        # 凭据与内网 IP 扫描（防止密码再次被推送）
 └── docs/                       # 项目文档体系
     ├── ARCHITECTURE.md         # 架构总览（面试开场用这份）
     ├── CURRENT_STATUS.md       # 现在能干什么 + 下一步(接手先看这份)
