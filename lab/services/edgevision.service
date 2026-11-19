@@ -1,0 +1,71 @@
+[Unit]
+Description=EdgeVision 9000 Gateway - YOLOv8 INT8 detection stream (248B fixed frame)
+Documentation=file:///root/lab/w4_edgevision_gateway.cpp
+After=network.target
+
+# ===========================================================================
+# ⚠️ 本文件是 2026-11-19 依板端现象**重建**的，未经板端回读校验。
+#
+#   背景：这个 unit 是 9000 网关（项目脊柱）的启动方式，control_service 的
+#   kServices[] 里 "gateway" -> "edgevision"，但 lab/services/ 里一直没有它 ——
+#   全仓、全 git 历史、工作区都搜不到。后果是别人 clone 下来装不全系统，
+#   control_service(gateway,start) 直接失败。
+#
+#   重建所依据的确证事实（每条都有出处，不是猜的）：
+#     · unit 名 `edgevision`            <- lab/agent/rkllm_embodied_agent.cpp:885
+#     · 二进制 /root/lab/w4_edgevision_gateway
+#                                      <- lab/build/build_w4_gateway.sh 注释
+#                                       + tools/npu_doctor.sh 的 pgrep 模式串
+#     · 默认摄像头 /dev/video81         <- lab/services/edgevision-cam2.conf 原文
+#                                       （"原 unit 的 ExecStart 写死 /dev/video81"）
+#     · 必须与 voice-gateway 互斥      <- 根 AGENTS.md 硬约束 ⑥（IOMMU 4 GiB）
+#     · 服务化风格                      <- 同目录 edgevision-dashboard.service
+#
+#   ★ 校验方法（板子在手时执行，逐字比对）：
+#       ssh rk3588 'cat /etc/systemd/system/edgevision.service'
+#       ssh rk3588 'ls /etc/systemd/system/edgevision.service.d/'
+#     若板端与本文不同，**以板端为准**，改这份文件，不要反过来改板子。
+#     校验前请勿在 docs/CURRENT_STATUS.md 里把它写成已验证的 ✅。
+# ===========================================================================
+
+# ⚠️ 与 voice-gateway.service **硬互斥**：两者都要独占 NPU 的 IOMMU 地址空间。
+#
+#   根因（实测，见 docs/TROUBLESHOOTING.md 第 27 条）：
+#     RK3588 NPU 的 IOMMU 只有 **32 位，即 4 GiB** 地址空间 —— 与物理内存 7.5 GB 无关。
+#     每个 rkllm 实例约占 ~1.95 GB IOVA。网关/看板先起来的 NPU 上下文已吃掉一块，
+#     再叠加一个 rkllm 就让 `dma_map_sg` 超过 4096 MiB → 返回 EFAULT(errno 14)，
+#     表现为 `rkllm_init failed: -1` / `failed to malloc npu memory`。
+#
+#   所以这里必须声明式互斥，而不是靠人记得先停一个。
+#   配套的 After= 保证"先停完 voice-gateway，再启动本服务"。
+Conflicts=voice-gateway.service
+After=voice-gateway.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/lab
+EnvironmentFile=-/etc/default/edgevision
+
+# 摄像头设备走 EnvironmentFile，不要在 unit 里写死：
+#   cam1(/dev/video81) 2026-11-11 起硬件损坏（空闲态 v4l2-ctl 抓帧恒 0 字节），
+#   当前切到 cam2 由 drop-in 覆盖，见 lab/services/edgevision-cam2.conf。
+#   改 /etc/default/edgevision 后 restart 即可，不用动 unit。
+ExecStart=/root/lab/w4_edgevision_gateway $GATEWAY_CAM
+
+# 网关会独占摄像头并持有 NPU 上下文，退出时必须让它按 SIGTERM 正常收尾
+# （关 V4L2 流、释放 rknn context、退推流线程），否则残留的 NPU 映射会钉住 IOMMU。
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+Restart=on-failure
+RestartSec=5
+# 摄像头坏掉时会一直失败重启 → 限次，避免把 journal 刷爆
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

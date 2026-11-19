@@ -12,6 +12,15 @@ __pycache__/
 data/
 outputs/
 build/
+# ⚠️ 2026-11-19 修正：上面的裸 `build/` 本意是忽略**编译产物目录**，
+#   但它按目录名匹配，把 lab/build/（存放编译与上线脚本的源码目录）也误伤了。
+#   症状：该目录下**已在库里的** 6 个 .sh 照常可改，但**新加的脚本 git add 不进去**
+#   （报 "The following paths are ignored by one of your .gitignore files"）。
+#
+#   只放行该目录下的**脚本与说明**，编译产物（无扩展名的二进制等）仍按原意忽略。
+!/lab/build/
+!/lab/build/*.sh
+!/lab/build/*.md
 deploy/cpp/build/
 *.whl
 .DS_Store

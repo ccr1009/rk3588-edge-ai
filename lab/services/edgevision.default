@@ -1,0 +1,22 @@
+# /etc/default/edgevision —— 9000 推流网关（edgevision.service）的运行参数
+#
+# 装到：/etc/default/edgevision
+# 用法：改完 `sudo systemctl restart edgevision`，不用动 unit 文件。
+#
+# 为什么参数要走这里而不是写死在 unit 里：
+#   本项目 2026-11-11 实测 cam1(/dev/video81) 硬件损坏 —— 空闲状态下
+#   `v4l2-ctl` 抓帧恒 0 字节（4 种格式组合全试过），而 cam2 同命令能出 245~300 KB。
+#   软件复位（authorized 0/1 重插、uvcvideo unbind/bind）全部无效。
+#   详见 docs/TROUBLESHOOTING.md 第 54 条「复位有效性实测」。
+#
+#   不留可配置入口的话，换个摄像头就得改 systemd unit —— 那是板端根目录里
+#   唯一不能被 git 跟踪的东西（/etc 不在仓库内），改了没有版本记录，迟早对不上。
+
+# 网关读取的摄像头设备节点
+#
+#   /dev/video81 = cam1（原始主摄，硬件已损坏，仅在修好后可用）
+#   /dev/video83 = cam2（当前在用）
+#
+# 注意：同时只应该有一个进程持有该设备。8080 预览（edgevision-preview）
+# 和双目 stereo3d 右目都用 video83，与网关同开会抢设备。
+GATEWAY_CAM=/dev/video83
