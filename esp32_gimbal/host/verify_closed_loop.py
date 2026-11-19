@@ -8,8 +8,8 @@
     是否顶死限位、串口错误数），**用数字判断而不是用眼睛看**。
 
 用法：
-    python verify_closed_loop.py --port COM6 --host 10.21.3.103 --seconds 25
-    python verify_closed_loop.py --port COM6 --host 10.21.3.103 --mode relative
+    python verify_closed_loop.py --port COM6 --host <board-ip> --seconds 25
+    python verify_closed_loop.py --port COM6 --host <board-ip> --mode relative
 """
 import argparse
 import os

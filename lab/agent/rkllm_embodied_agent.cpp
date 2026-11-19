@@ -18,6 +18,8 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include "rkllm.h"
+// 248B 定长帧协议的唯一真源（见 lab/include/edgevision_protocol.h 顶部说明）
+#include "edgevision_protocol.h"
 
 // -------------------------------------------------------------
 // 全局状态与输出缓冲
@@ -536,22 +538,12 @@ std::string tool_control_led(const std::string& mode_raw) {
 // -------------------------------------------------------------
 // 工具 4: 视觉检测数据采集 (从本地 9000 端口抓取最新目标)
 // -------------------------------------------------------------
-#define MAX_BBOXES 10
-#pragma pack(push, 1)
-struct BBox {
-    int32_t class_id;
-    float   score;
-    float   x, y, w, h;
-};
-struct DetectionHeader {
-    uint32_t frame_id;
-    uint32_t bbox_count;
-};
-struct FrameResult {
-    DetectionHeader header;
-    BBox boxes[MAX_BBOXES];
-};
-#pragma pack(pop)
+// BBox / DetectionHeader / FrameResult 已抽出到 lab/include/edgevision_protocol.h —
+// 发送端（9000 网关）与本消费端现在共用同一份定义，248 字节由 static_assert 锁死。
+// 之前这里是一份复制，改网关不改这里不会报错，只会读出偏移错位的框。
+//
+// MAX_BBOXES 保留旧名字，等价于头文件的 kMaxBBoxes，避免动业务代码。
+static constexpr uint32_t MAX_BBOXES = kMaxBBoxes;
 
 static const char* COCO80_NAMES[] = {
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -1946,7 +1938,7 @@ int main(int argc, char** argv) {
         "直接用 control_service 返回的 `url`。**禁止说 localhost 或 127.0.0.1** —— "
         "用户是在自己电脑上开浏览器，localhost 指向他自己的机器，必然打不开。\n"
         "- 【启动服务后必须报地址】用户说\"打开预览/打开看板\"，工具返回成功后，"
-        "你必须把 `url` 字段里的完整地址念给用户（如 http://10.21.3.103:8080/），"
+        "你必须把 `url` 字段里的完整地址念给用户（如 http://<board-ip>:8080/），"
         "**不要只说\"已启动\"就完事** —— 用户不知道端口也不知道 IP，说了等于没说。"
         "preview 还有 `endpoints` 字段，可顺带说 /stream（连续流）和 /snapshot（单帧）。\n"
         "- 【摄像头冲突要如实说】用户要求打开 preview 或 gateway 时，若工具返回 "

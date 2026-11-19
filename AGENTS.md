@@ -49,7 +49,7 @@
 | `lab/voice/` | 语音网关、TTS 常驻、启停脚本 | 项目主线 |
 | `lab/vision/` | **9000 网关**、8080 预览 | 9000 网关是脊柱，**不在 deploy/cpp 里** |
 | `lab/tests/` | 回归/探索/声学自检/客户端（13 个） | 改完代码必须跑前 4 个 |
-| `lab/services/` | 5 个 systemd unit | 装到 `/etc/systemd/system/` |
+| `lab/services/` | **7 个 systemd unit**（+ 4 个 `/etc/default` 环境文件） | 装到 `/etc/systemd/system/` 与 `/etc/default/` |
 | `lab/build/` | 6 个编译与上线脚本 | `deploy.sh` 只覆盖 Agent 与语音网关 |
 | `lab/drafts/` | 31 个历史草稿 | **不要改**，结论已在 `docs/` |
 | `lab/tools/` | 攻坚工具/探针源码（25 个 .cpp + 25 个 .sh） | 从板端抢救回来，含 RGA **失败**尝试 |

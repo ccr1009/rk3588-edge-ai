@@ -33,7 +33,7 @@ sudo systemctl stop   gimbal-tracker gimbal-bridge    # 停止（静音）
 sudo systemctl status gimbal-bridge gimbal-tracker
 ```
 
-启动后的预览地址：http://10.21.3.103:8080
+启动后的预览地址：http://<board-ip>:8080
 
 一键验证（四项全查）：
 ```bash

@@ -209,7 +209,7 @@ Agent 完全管不到 —— 用户说"打开预览"只能得到一句"请自己
 **实测（2026-11-12，真机）**：
 | 用例 | 结果 |
 | :--- | :--- |
-| "打开摄像头实时预览，然后告诉我网页地址" | ✅ 自主调 `control_service(preview,start)`，汇报 `http://10.21.3.103:8080/`，HTTP 200 |
+| "打开摄像头实时预览，然后告诉我网页地址" | ✅ 自主调 `control_service(preview,start)`，汇报 `http://<board-ip>:8080/`，HTTP 200 |
 | "把摄像头预览关掉" | ✅ `success:true / inactive`，8080 归零，`/dev/video83` 释放 |
 | 网关占着 cam2 时说"打开预览" | ✅ 返回 `camera_busy / held_by:服务 edgevision`，**网关保持 active 未被停** |
 | unit 启停可靠性 | ✅ start/stop/restart 全正常；`kill -9` 后 5 秒自愈（PID 1917→1932） |

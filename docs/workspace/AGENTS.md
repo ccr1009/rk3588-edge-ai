@@ -98,8 +98,8 @@ D:\a研究生\项目\rk3588项目\
 | 开发板 | **EVM3588-B(英码科技 EMA)**,SOM3588-B 核心板,**8GB + 64GB eMMC** |
 | 系统 | **Debian 11 (bullseye)**,内核 5.10.110,预装出货镜像(系统在 eMMC,不用刷) |
 | 电源 | 12V DC 圆头(套件自带) |
-| 网络 | **有线**(宿舍网口)→ 板子 IP **`10.21.3.103`**;WiFi 已关闭 |
-| SSH | `ssh root@10.21.3.103` 密码 **`ematech`**(`ema` 也是 `ematech`) |
+| 网络 | **有线**(宿舍网口)→ 板子 IP **`<board-ip>`**;WiFi 已关闭 |
+| SSH | `ssh root@<board-ip>`,密码见本地私密记录(**不入库**)。 |
 | 已知正常 | 内存 7.5Gi、eMMC 57.6G、**NPU v0.9.2 + 3核**,`librknnrt.so` 已装,RGA/MPP 正常 |
 
 ### 关键坑(别再踩/别再误判)
@@ -114,7 +114,7 @@ D:\a研究生\项目\rk3588项目\
 
 ## 3. 已完成的事(有证据)
 - ✅ 板子自检全过(内存/存储/开机/NPU/驱动),脚本:`rk3588-edge-ai/scripts/check_board.sh`(板上 `/root/check_board.sh`)。
-- ✅ **远程开发环境**:有线 SSH 通,电脑可直接 `ssh root@10.21.3.103` 粘贴命令。
+- ✅ **远程开发环境**:有线 SSH 通,电脑可直接 `ssh root@<board-ip>` 粘贴命令。
 - ✅ 板上装了 **g++ 10.2.1 / make / cmake**;项目源码传到 **`/root/edgevision/`**。
 - ✅ **真实 NPU 推理跑通**:`edgevision_pro_rknn` 原生编译成功,加载 `yolov8n_rk3588_i8.rknn` 成功。注意它跑的是**合成输入仿真**(3 路 × 100 帧 = 300 帧,输入是整幅灰图),实测 **25.1 FPS 聚合**;纯推理边界的真实单核实测是 **37.19 ms/帧 ≈ 26.9 FPS**(见 `docs/BENCHMARKS.md` 2.2 节,含 p50/p95/p99)。README 声称 150+ 是理想值,**以实测为准**。
 - ✅ 板载 **LED** 设为 `heartbeat` 呼吸闪 + **systemd 服务 `led-heartbeat`** 开机自启。
@@ -145,7 +145,7 @@ D:\a研究生\项目\rk3588项目\
   - 视觉:Cam 1 `/dev/video81`(已旋钮远焦对焦锐利)+ Cam 2 `/dev/video83`，吃透 CMOS 自动曝光(AE) 15 帧预热收敛原理。
   - 音频:两路独立 USB 麦克风 ALSA 节点 `hw:5,0` 与 `hw:6,0`，实测录制 16000Hz 16-bit PCM 立体声无暇，具备多模态 Edge Agent 视听双全基础！
 - ✅ **板端性能实测与逐层剖析(2026-10-17)**:新增 `rk3588-edge-ai/deploy/cpp/bench/`(`bench_npu.cpp` / `bench_multicore.cpp`)。实测:单核 **37.19ms / 26.9FPS**;3 个独立 context 绑 3 核真并行 **59.3FPS / 2.21x**(三核各仅 49% 负载);逐层剖析出 **49% 时间(18.44ms)耗在 CPU 回退的 YOLOv8 DFL 检测头**(Transpose 9.2ms + Softmax 4.5ms + Reshape 4.4ms),NPU 主体仅 19.23ms。数据与优化路线已回填 `docs/BENCHMARKS.md` 2.2 节。
-- ✅ **免密 SSH**:`ssh root@10.21.3.103` 不用输密码(密钥 `~/.ssh/id_ed25519_rk3588`,别名 `ssh rk3588`;配置脚本 `_tools/setup_board_ssh.py`)。
+- ✅ **免密 SSH**:`ssh root@<board-ip>` 不用输密码(密钥 `~/.ssh/id_ed25519_rk3588`,别名 `ssh rk3588`;配置脚本 `_tools/setup_board_ssh.py`)。
 - 🚧 **第二阶段开工(2026-10-21):DFL-Free 模型改造 + 量化精度修复**
   - **ONNX 图手术砍掉 DFL 头**:`convert/export_dflfree_onnx.py` 把 `yolov8n.onnx`(262 节点, 1 输出 84ch) 切成 `yolov8n_dflfree.onnx`(228 节点, 2 输出: `raw_box` 64ch + `cls_sig` 80ch),整个 DFL 解码链(Transpose/Softmax/Reshape)从图里消失。
     - **数值等价已证明**:numpy 参考解码 vs 原模型输出,box max|Δ|=**0.000122 px**、cls max|Δ|=**0**(float32 精度极限)。
@@ -170,7 +170,7 @@ D:\a研究生\项目\rk3588项目\
     - 局限(引用时必须一起说):COCO128 是 YOLOv8n 的**训练子集**,绝对 mAP 偏乐观,不能对外说"在 COCO val2017 上 0.61";但 FP32/INT8 用同一批图,"见过"因素两边抵消,相对掉点成立。
     - 详见 `docs/BENCHMARKS.md` **2.4 节**(含数据集来源、口径、复现命令)。
   - ✅ **真实检测框网页预览**:`lab/vision/edgevision_preview_real.cpp` 取代原来画假框的 `w4_edgevision_preview.cpp`(旧版那两个 "Person 96%" / "Object 91%" 是硬编码装饰,且模型跑完 `want_float=0` 拿完就 release,检测结果从未被使用)。
-    - HTTP 路由:`GET /` 网页外壳(深色、LIVE 指示灯、断流自动重连)、`GET /stream` MJPEG 流、`GET /snapshot` 单帧 JPEG;浏览器直接开 **`http://10.21.3.103:8080`**。
+    - HTTP 路由:`GET /` 网页外壳(深色、LIVE 指示灯、断流自动重连)、`GET /stream` MJPEG 流、`GET /snapshot` 单帧 JPEG;浏览器直接开 **`http://<board-ip>:8080`**。
     - 预处理改成 **letterbox**,HUD 实时显示 `NPU xx ms + Decode xx ms + FPS + obj 数`;离线验证工具 `deploy/cpp/bench/preview_detect.cpp`。
     - 实测 HUD:`NPU 15.1 ms + Decode 1.2 ms | 20.0 FPS`(~34ms 耗在 MJPG 解码/缩放/画图/JPEG 编码,**瓶颈已不在 NPU**)。
   - ✅ **9000 网关工业级彻底闭环(2026-10-23)**:将 `RKNNEngineDflFree` 3核硬绑定完整接进 `w4_edgevision_gateway.cpp`,彻底铲除假数据!
@@ -279,7 +279,7 @@ D:\a研究生\项目\rk3588项目\
       | `gateway/zero_copy_pipeline.py` | 文件头称实现 MPP→RGA→RKNN 零拷贝 | `fd = 1000 + buf_id` 是**模拟 fd** |
     - **处理原则（重要，以后照做）**：①假数据不删了事，**README 新增「明确未实现（不要对外宣传）」7 行表**——主动写"没做"比被问穿强；②余弦相似度那条**保留下来改造成反面教材**（「我一开始拿它当精度指标，0.9965 就 PASS 了；后来发现特征图整体相似不影响单个分支塌缩，真精度得跑 mAP」）——**自打脸的过程比漂亮数字更值钱**；③`docs/README.md` + `BEV_GATEWAY_ARCHITECTURE.md` 文首加"这是早期设计稿"声明 + 逐项对照表，不销毁设计思路。
     - **git 首次系统化入库**：此前仓库最后 commit 停在 10-18，**10-21 之后 8 天的活（DFL 图手术/量化修复/MPP 硬解/RKLLM Agent/巡检守护/回归体系/编译优化）一个都没提交**。补了 5 个 commit：`8f6b648`（88 文件 +16139/−327 主提交）、`de1dc2f`… 等，见 `git log`。
-    - **purge 掉公开仓库里的机密**：仓库是 **public**，历史 commit 的 `AGENTS.md`/`CURRENT_STATUS.md`/`LEARNING_PLAN_4WEEKS.md` 里写着**板子 root 密码**与内网 IP → 两次 `git filter-branch` 改写未推送历史 + 清理 reflog 与悬空对象；终验 `git grep ematech $(git rev-list main)` = CLEAN、IP CLEAN、连 `REDACTED` 占位符都清干净。已推送的 `origin/main` 经查本就不含，实际暴露面为零。
+    - **purge 掉公开仓库里的机密**：仓库是 **public**，历史 commit 的 `AGENTS.md`/`CURRENT_STATUS.md`/`LEARNING_PLAN_4WEEKS.md` 里写着**板子 root 密码**与内网 IP → 两次 `git filter-branch` 改写未推送历史 + 清理 reflog 与悬空对象；终验 `git grep <板子密码> $(git rev-list main)` = CLEAN、IP CLEAN、连 `REDACTED` 占位符都清干净。**⚠️ 2026-11-19 更正**：上面这句「已推送的 origin/main 经查本就不含，实际暴露面为零」**当时成立、后来不成立** —— 2026-10-26 之后的提交 `0c9f6db` 把**未脱敏**的本文件（含板子 IP 与 root 密码）推上了 `origin/main`，公开仓库可读。已在本日脱敏并加 `scripts/check_secrets.sh` 扫描。**教训：一次性 purge + 人工核对只能证明「那一刻」干净，此后任何一次提交都可能重新引入 —— 必须用可重复执行的机器扫描兜住。**
     - **代码改用环境变量传板 IP**：`lab/{agent_multistep_demo,agent_regression_test,bench_contention_sampler}.py` 的 `--host` 默认值改为 `os.environ.get("EDGEVISION_BOARD_HOST","")` + 缺省时 `exit 2` 并提示；`lab/tests/run_agent_test.py` 的 SSH key 也改 `EDGEVISION_SSH_KEY`。**换台机器 clone 下来不会连错板子，也不会把内网 IP 泄到公开仓库**。
     - **踩坑（可复用）**：`Out-File -Encoding UTF8` 会给 commit message 加 **BOM**，导致 `git log` 标题变乱码 → 必须用 `[System.Text.UTF8Encoding]::new($false)` 写文件再 `git commit -F`；`core.filemode=true` + `core.autocrlf=true` 会让 15 个文件显示"已修改"而 `diff --numstat` 全是 `0 0`（纯 mode 变化）→ `git config core.filemode false` 立刻清爽。
     - ⚠️ **剩一步没做**：`git push` 卡在凭据（本地两个 SSH key 都不被 GitHub 认可、无 gh CLI/PAT）→ 需用户自己加 deploy key 或 PAT 后 `git push origin main`（当前 ahead 10）。
@@ -371,7 +371,7 @@ D:\a研究生\项目\rk3588项目\
 ## 5. 关键路径 / 命令
 ```bash
 # 电脑侧
-ssh root@10.21.3.103                 # 已配免密(密钥 ~/.ssh/id_ed25519_rk3588),别名 ssh rk3588;备用密码 ematech
+ssh root@<board-ip>                    # 已配免密(密钥 ~/.ssh/id_ed25519_rk3588),别名 ssh rk3588
 # 板子侧
 cd /root/edgevision && ./deploy/cpp/build_native/edgevision_pro_rknn   # 跑 NPU
 cd /root/lab                          # C++ 练习
