@@ -61,11 +61,6 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-// 248B 定长帧协议的唯一真源（见 lab/include/edgevision_protocol.h 顶部说明）。
-// 本文件原来把同一套结构复制成 PatrolBBox / PatrolHeader / PatrolFrame 三个名字，
-// 现在由该头文件提供同名 using 别名，下面的业务代码一行都不用改。
-#include "edgevision_protocol.h"
-
 // ---------------- 路径 -------------------------------------------------------
 static const char* LED_TRIGGER   = "/sys/class/leds/work/trigger";
 static const char* LED_BRIGHTNESS = "/sys/class/leds/work/brightness";
@@ -278,9 +273,12 @@ static bool read_npu_load(int& c0, int& c1, int& c2) {
 }
 
 // ---------------- 视觉采样: 连 127.0.0.1:9000 收一帧 248B 定长帧 --------------
-// 结构体（PatrolBBox / PatrolHeader / PatrolFrame）由 edgevision_protocol.h 提供，
-// 与发送端 9000 网关共用同一份定义。这里只保留旧的常量名，等价于 kMaxBBoxes。
-static constexpr uint32_t PATROL_MAX_BBOXES = kMaxBBoxes;
+#define PATROL_MAX_BBOXES 10
+#pragma pack(push, 1)
+struct PatrolBBox  { int32_t class_id; float score, x, y, w, h; };          // 24B
+struct PatrolHeader{ uint32_t frame_id; uint32_t bbox_count; };             // 8B
+struct PatrolFrame { PatrolHeader header; PatrolBBox boxes[PATROL_MAX_BBOXES]; }; // 248B
+#pragma pack(pop)
 
 struct VisionSample {
     bool   ok = false;
