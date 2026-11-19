@@ -59,33 +59,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. 248B 协议契约
+# 2. 248B 协议口径（只做数值复核，不要求单一真源）
 # ---------------------------------------------------------------------------
+# 说明：协议结构体目前在 5 个 C++ 文件里各有副本（发送端 1 + 消费端 4）。
+# 曾尝试抽出 lab/include/edgevision_protocol.h 做单一真源 + 编译期断言，
+# 但那需要改 5 个主线 .cpp 和 5 个构建脚本，而 PC 上没有 C++ 编译器、
+# 板子当时也不可达 —— 改动无法验证。项目已转入面试准备、不再演进协议，
+# 这个风险窗口本来就关闭了，所以**回退**了那次重构（见 OPEN_ISSUES #18）。
+#
+# 这里保留的是当初用来交叉验证的数值复核：不依赖 C++ 编译器，
+# 只用 Python struct 按 `#pragma pack(1)` 的规则独立复算一遍。
+# 它证明的是「口径没算错」，不证明「各副本仍一致」—— 后者靠人改的时候对一眼。
 echo ""
-echo "[2] 248B 定长帧协议契约"
-if [ ! -f lab/include/edgevision_protocol.h ]; then
-    fail "缺少 lab/include/edgevision_protocol.h（协议唯一真源）"
-elif [ ! -f lab/tests/protocol_selftest.cpp ]; then
-    fail "缺少 lab/tests/protocol_selftest.cpp"
-else
-    # 契约的数字用 Python 独立复算 —— 不依赖 PC 上有 C++ 编译器。
-    # 注意：这里复算的是**头文件里 static_assert 的期望值**，
-    #      真正的 C++ 编译期断言在板端编译时才会执行。
-    python3 - <<'PY' 2>/dev/null && pass "结构尺寸与字段偏移符合 248B 口径" || fail "协议尺寸不符"
+echo "[2] 248B 协议口径复核"
+python3 - <<'PY' 2>/dev/null && pass "结构尺寸符合 248B 口径（BBox=24 / Header=8 / 整帧=248）" || fail "协议尺寸不符"
 import struct, sys
-box = struct.Struct("<ifffff")      # int32 + 5*float
-hdr = struct.Struct("<II")          # 2*uint32
+box = struct.Struct("<ifffff")      # int32 + 5*float = 24B
+hdr = struct.Struct("<II")          # 2*uint32     = 8B
 ok = (box.size == 24 and hdr.size == 8 and hdr.size + 10*box.size == 248)
 sys.exit(0 if ok else 1)
 PY
-    # 再确认协议结构体没有在各地重新复制
-    dup=$(git grep -l 'struct FrameResult\s*{' -- 'lab/*.cpp' 'lab/**/*.cpp' 'esp32_gimbal/**/*.cpp' 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$dup" = "0" ]; then
-        pass "无本地 struct FrameResult 副本（全部走头文件）"
-    else
-        fail "仍有 $dup 处本地 FrameResult 副本，应改为 #include"
-    fi
-fi
 
 # ---------------------------------------------------------------------------
 # 3. Python 语法
