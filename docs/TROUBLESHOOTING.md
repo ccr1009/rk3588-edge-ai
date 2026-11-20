@@ -367,6 +367,109 @@ bash build_w4_gateway.sh    # 立刻通过
 
 ---
 
+### 58. 手写 `g++` 命令漏了 `-DENABLE_RKNN` —— 编出一个「跑得比真机还快」的假推理网关
+
+> ✅ **面试价值高**：这是 AGENTS.md 第①条「不许用假数据」最隐蔽的形态 ——
+> **不是有人故意写假框，而是构建配置漏了一个宏**。端口在听、协议正确、日志在滚、
+> 每帧都报「检出 0 目标」，只有一件事不对：**NPU 从来没被调用过**。
+> 能被追问的点：为什么功能测试发现不了？怎么把「真假」变成可打印判据？
+
+**现象（2026-11-20）**：把 11-11 的 `cam_read()` 断帧加固补编到板上（板上源码还停在 10-24），
+按仓库 `lab/build/build_w4_gateway.sh` 里的 `g++` 命令编译。编译**成功、零告警**，
+二进制起来也"正常"：
+
+```
+[System] 正在加载 NPU 模型: .../yolov8n_dflfree_rk3588_i8.rknn
+[+] 模型加载成功，大小: 4 MB
+[TCP Server] 推流网关已在端口 9000 监听就绪！
+[!] x86 Stub Mode (no NPU)          ← ★ 就是这一行
+[NPU Core #2] 0 ms | 帧 #465 | 检出 0 目标
+[NPU Core #2] 0.000292 ms | 帧 #480 | 检出 0 目标
+```
+
+**三层误导，每一层都足以骗过"看起来能跑"**：
+
+| 层 | 表现 | 为什么骗人 |
+|---|---|---|
+| ① 编译 | **零 error 零 warning** | 桩是用 `#ifdef` 正常分支编出来的，不是报错路径 |
+| ② 启动 | 模型"加载成功，大小 4 MB"、端口 9000 监听就绪、摄像头预热通过 | 日志里的**成功字样全是真的**，只有 `[!] x86 Stub Mode` 一行是提示 |
+| ③ 运行 | 帧号一路涨到 #705+，协议 248B 正常发出，优雅退出 | **吞吐比真 NPU 还漂亮**（0 ms vs 16.8 ms/帧） |
+
+**排查（关键是"和已知-good 的二进制对比"）**：
+
+```bash
+# 新旧二进制的字符串里直接找桩标记
+strings <旧二进制> | grep -c "x86 Stub Mode"   # → 0   （10-24 那份是真的）
+strings <新二进制> | grep -c "x86 Stub Mode"   # → 1   （刚编的这份是桩）
+```
+
+一次 `strings` 就定了性，不需要跑推理、不需要示波器。**因为桩的存在一定会留下字符串痕迹。**
+
+**根因**：`deploy/cpp/src/rknn_engine_dfl_free.cpp` 里**所有**真 RKNN 调用都包在
+`#ifdef ENABLE_RKNN` 内，`#else` 分支打印 `[!] x86 Stub Mode (no NPU)` 并返回空结果：
+
+```cpp
+#ifdef ENABLE_RKNN
+    ... rknn_init / rknn_run / rknn_outputs_get ...   // 真推理
+#else
+    std::cout << "[!] x86 Stub Mode (no NPU)" << std::endl;   // 桩
+#endif
+```
+
+而 `deploy/cpp/CMakeLists.txt:128` 里有 `add_definitions(-DENABLE_RKNN)` ——
+**走 CMake 构建永远是对的**。但 `lab/build/build_w4_gateway.sh` 是一条**手写的 `g++` 命令**，
+它从 CMake 抄了 `-I` 和 `-l`，**唯独漏抄了 `-D`**。
+
+> **这是「配置双写」的典型代价**：同一个编译事实（要不要真 NPU）在
+> CMakeLists 和 build 脚本各存一份，改的时候只改一处。和项目里
+> 「同一件事存两处，迟早有一处是错的」是同一个病根。
+
+**连带发现的第二个坑**：同一条命令还**没链引擎和后处理源文件**
+（`rknn_engine_dfl_free.cpp`、`postprocess_dfl_free.cpp`），直接报
+`undefined reference to RKNNEngineDflFree::...`。它们不在 `/root/lab`，
+在 `/root/edgevision/deploy/cpp/src/`。
+
+**解法**（`lab/build/build_w4_gateway.sh` 已固化）：
+
+```bash
+g++ -O2 -DENABLE_RKNN /root/lab/w4_edgevision_gateway.cpp \
+    /root/edgevision/deploy/cpp/src/rknn_engine_dfl_free.cpp \
+    /root/edgevision/deploy/cpp/src/postprocess_dfl_free.cpp \
+    -o /root/lab/w4_edgevision_gateway \
+    -I/usr/include/opencv4 \
+    -I/root/edgevision/deploy/cpp/include \
+    -I/root/edgevision/deploy/cpp/3rdparty/rknn_api/include \
+    -L/root/edgevision/deploy/cpp/3rdparty/rknn_api/lib \
+    -lopencv_core -lopencv_videoio -lopencv_imgproc -lrknnrt -lpthread
+
+# ★ 编完必须自动断言，不能靠人记得查
+if strings /root/lab/w4_edgevision_gateway | grep -q "x86 Stub Mode"; then
+    echo "[-] 致命：编出的是 x86 桩，没有真 NPU。检查 -DENABLE_RKNN。"; exit 1
+fi
+```
+
+**验证（板端实测 2026-11-21 00:01）**：
+
+| 判据 | 桩版 | 加固+真 NPU 版 |
+|---|---|---|
+| `strings \| grep -c "x86 Stub Mode"` | 1 | **0** |
+| `nm -C \| grep -c cam_read` | 0 | **1**（断帧加固在） |
+| 单帧 NPU 耗时 | 0 / 0.000292 ms | **16.7 ~ 22.6 ms** |
+| 检出目标数 | 恒 0 | **1**（真实画面） |
+| 服务状态 | — | `active`、`NRestarts=0` |
+
+**教训**：
+
+- **「编译通过 + 启动成功 + 帧号在涨」证明不了任何事。** 必须有一条
+  **直接指向物理事实**的判据（这里是：NPU 耗时是不是 0、`strings` 里有没有桩标记）。
+  这和项目里「演示全绿但 Agent 在说谎」「代码全绿但前提不成立」是同一类错误。
+- **`-D` 也是构建契约的一部分**，和 `-I`、`-l` 一样必须两边同步。
+  手写 `g++` 命令时，最该核对的不是库路径，而是**宏定义**。
+- **把断言写进构建脚本**：这个坑发现于「编完我顺手看了一眼日志」，
+  下次别人未必会看。改成 `strings` 断言后，编出桩版直接 `exit 1`。
+
+---
+
 ## 六、并发与推流架构
 
 ### 14. 结果队列缺少背压控制，上位机重连导致瞬时 10000+ FPS 历史积压爆发与延迟雪崩
@@ -3168,3 +3271,7 @@ T-14.3 → -14.3 → -14.3 → -14.0（连续 10 帧不动）→ -13.5 → ...
 | OpenCV | 看到 `!buf.empty() in function 'imdecode_'` 而自己没调过 imdecode：查 `what()` 里的库名与 `modules/xxx/src` 路径，**判断它是库内的 CV_Assert**，再找"我们没写但一定会解 JPEG"的地方（`VideoCapture` + MJPG） |
 | 摄像头 | 换掉裸 `cap >>` 时**必须先 `dst.release()`**：`VideoCapture::read()` 失败时不改输出 Mat，不清空会让上一帧冒充新帧 → "画面冻结但帧率在涨"，比崩溃更难查 |
 | 工程习惯 | 吞掉的异常必须**计数 + 外显**（日志/JSON/面板三处）：悄悄 catch = 谎报帧率，和"用假数据"同类 |
+| 构建 | **手写 `g++` 命令漏一个 `-DENABLE_RKNN` 就编出 x86 桩**：端口在听、协议正确、帧号在涨、日志全是成功字样，只有 NPU 耗时是 **0 ms**、恒「检出 0 目标」。`strings 二进制 \| grep -c "x86 Stub Mode"` 必须为 **0**（见第 58 条） |
+| 构建 | **`-D` 宏和 `-I`/`-l` 一样是构建契约**：CMakeLists 里有 `add_definitions(-DXXX)` 时，手抄出来的 `g++` 命令最容易漏的就是它。别只核对库路径 |
+| 工程习惯 | **"编译通过 + 启动成功 + 帧号在涨"证明不了任何事**。必须有一条直接指向物理事实的判据（NPU 耗时是否为 0、硬件中断是否增加），否则"跑得很流畅"可能只是桩在跑 |
+| 安全 | **修完泄漏、写验收记录时，别把原文再抄一遍**。2026-11-20 我给文档写「回读远端，<板子口令>/<板子IP> 命中 0」，结果**把真值写进了新提交**，被自己的 `check_secrets.sh` 当场抓住（还被抓了两次——改第一处时又在第二处复述了一遍）。正确写法是「按 8 条规则复扫，命中 0」——**描述验证方法，不复述验证数据** |

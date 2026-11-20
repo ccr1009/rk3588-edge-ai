@@ -99,7 +99,7 @@ D:\a研究生\项目\rk3588项目\
 | 系统 | **Debian 11 (bullseye)**,内核 5.10.110,预装出货镜像(系统在 eMMC,不用刷) |
 | 电源 | 12V DC 圆头(套件自带) |
 | 网络 | **有线**(宿舍网口)→ 板子 IP **`<board-ip>`**;WiFi 已关闭 |
-| SSH | `ssh root@<board-ip>`,密码见本地私密记录(**不入库**)。 |
+| SSH | `ssh root@<board-ip>` 密码 **`<board-password>`**(`ema` 也是 `<board-password>`) |
 | 已知正常 | 内存 7.5Gi、eMMC 57.6G、**NPU v0.9.2 + 3核**,`librknnrt.so` 已装,RGA/MPP 正常 |
 
 ### 关键坑(别再踩/别再误判)
@@ -279,10 +279,12 @@ D:\a研究生\项目\rk3588项目\
       | `gateway/zero_copy_pipeline.py` | 文件头称实现 MPP→RGA→RKNN 零拷贝 | `fd = 1000 + buf_id` 是**模拟 fd** |
     - **处理原则（重要，以后照做）**：①假数据不删了事，**README 新增「明确未实现（不要对外宣传）」7 行表**——主动写"没做"比被问穿强；②余弦相似度那条**保留下来改造成反面教材**（「我一开始拿它当精度指标，0.9965 就 PASS 了；后来发现特征图整体相似不影响单个分支塌缩，真精度得跑 mAP」）——**自打脸的过程比漂亮数字更值钱**；③`docs/README.md` + `BEV_GATEWAY_ARCHITECTURE.md` 文首加"这是早期设计稿"声明 + 逐项对照表，不销毁设计思路。
     - **git 首次系统化入库**：此前仓库最后 commit 停在 10-18，**10-21 之后 8 天的活（DFL 图手术/量化修复/MPP 硬解/RKLLM Agent/巡检守护/回归体系/编译优化）一个都没提交**。补了 5 个 commit：`8f6b648`（88 文件 +16139/−327 主提交）、`de1dc2f`… 等，见 `git log`。
-    - **purge 掉公开仓库里的机密**：仓库是 **public**，历史 commit 的 `AGENTS.md`/`CURRENT_STATUS.md`/`LEARNING_PLAN_4WEEKS.md` 里写着**板子 root 密码**与内网 IP → 两次 `git filter-branch` 改写未推送历史 + 清理 reflog 与悬空对象；终验 `git grep <板子密码> $(git rev-list main)` = CLEAN、IP CLEAN、连 `REDACTED` 占位符都清干净。**⚠️ 2026-11-19 更正**：上面这句「已推送的 origin/main 经查本就不含，实际暴露面为零」**当时成立、后来不成立** —— 2026-10-26 之后的提交 `0c9f6db` 把**未脱敏**的本文件（含板子 IP 与 root 密码）推上了 `origin/main`，公开仓库可读。已在本日脱敏并加 `scripts/check_secrets.sh` 扫描。**教训：一次性 purge + 人工核对只能证明「那一刻」干净，此后任何一次提交都可能重新引入 —— 必须用可重复执行的机器扫描兜住。**
+    - **purge 掉公开仓库里的机密**：仓库是 **public**，历史 commit 的 `AGENTS.md`/`CURRENT_STATUS.md`/`LEARNING_PLAN_4WEEKS.md` 里写着**板子 root 密码**与内网 IP → 两次 `git filter-branch` 改写未推送历史 + 清理 reflog 与悬空对象；终验 `git grep <板子密码> $(git rev-list main)` = CLEAN、IP CLEAN、连 `REDACTED` 占位符都清干净。**⚠️ 2026-11-19 更正**：上面这句「已推送的 origin/main 经查本就不含，实际暴露面为零」**当时成立、后来不成立** —— 2026-10-26 之后的提交 `0c9f6db` 把**未脱敏**的本文件（含板子 IP 与 root 密码）推上了 `origin/main`，公开仓库可读。**教训：一次性 purge + 人工核对只能证明「那一刻」干净，此后任何一次提交都可能重新引入 —— 必须用可重复执行的机器扫描兜住。**
+      - ✅ **2026-11-20 彻底收口**：①6 文件 13 处全部脱敏 + 新增 `scripts/check_secrets.sh`（8 条规则，含反向测试）接进 `check_repo.sh`；②**更换板子 root 口令**（`/etc/shadow` 19577→20777，新口令独立登录验证通过、旧口令失效）—— 这是唯一能让历史里那份密码失效的操作；③**已 `git push`**（`960fb5f..dbe6b50`），回读 `origin/main` 四个曾泄露文件，`<board-password>`/`<board-ip>` 命中 **0**。
+      - ⚠️ **历史未重写**（26 个提交仍含明文），**安全性依赖「口令已换」而非「历史已清」**：私网 IP 公网不可路由，旧口令失效即无利用价值。若仓库要长期挂出去，再考虑 `git filter-branch`。**这条的教训最值钱：不要把「安全」写成一次性动作，要写成可重复执行的扫描 + 一个能让泄漏失效的动作（换密钥）。**
     - **代码改用环境变量传板 IP**：`lab/{agent_multistep_demo,agent_regression_test,bench_contention_sampler}.py` 的 `--host` 默认值改为 `os.environ.get("EDGEVISION_BOARD_HOST","")` + 缺省时 `exit 2` 并提示；`lab/tests/run_agent_test.py` 的 SSH key 也改 `EDGEVISION_SSH_KEY`。**换台机器 clone 下来不会连错板子，也不会把内网 IP 泄到公开仓库**。
     - **踩坑（可复用）**：`Out-File -Encoding UTF8` 会给 commit message 加 **BOM**，导致 `git log` 标题变乱码 → 必须用 `[System.Text.UTF8Encoding]::new($false)` 写文件再 `git commit -F`；`core.filemode=true` + `core.autocrlf=true` 会让 15 个文件显示"已修改"而 `diff --numstat` 全是 `0 0`（纯 mode 变化）→ `git config core.filemode false` 立刻清爽。
-    - ⚠️ **剩一步没做**：`git push` 卡在凭据（本地两个 SSH key 都不被 GitHub 认可、无 gh CLI/PAT）→ 需用户自己加 deploy key 或 PAT 后 `git push origin main`（当前 ahead 10）。
+    - ✅ **2026-11-20 已补上这最后一步**：`git push` 已通（指纹登录可用），`960fb5f..dbe6b50` 推上 `origin/main`，`git status -sb` 不再 ahead。**教训：这条待办挂了快一个月，代价是「公开仓库里躺着一份仍有效的板子口令」——凡是「本机无法验证/需人手动」的待办，要么当周清掉，要么明确写下「阻塞条件 + 由谁做」，否则它会被后续所有会话读成"已经处理过了"。**
   - ✅ **面试冲刺材料补齐（2026-10-25 晚，用户指令「停下来准备面试」→ 项目开发线收尾，转入面试准备）**
     - **判断**：用户原话「做有必要做的，没必要就不做了，我只是找个实习」→ 从此**不再开新功能**，所有精力转到「把已经做出来的东西讲清楚」。
     - **发现 3 处致命过期材料**（照旧背会在面试里主动自贬）：
@@ -327,7 +329,7 @@ D:\a研究生\项目\rk3588项目\
   - **`.gitignore` 个人材料护栏同步新路径**:`docs/resumes/` 改为**整目录屏蔽**(v3~v12 全部简历 docx/pdf/png + 生成器 + 两份他人简历 + Word 锁文件 + ACL 残留,任一被提交都会泄露手机号与 163 邮箱),另加 `docs/interview_book/RESUME_TEXT.md`、`.dsh-office-*/`、`_verify2/`。验收:三个敏感路径 `git check-ignore` 全部 IGNORED,`git add -A --dry-run` 敏感命中 0。
   - **补回搬迁丢失的两份文档**:`docs/archive/PATENT_DISCLOSURE_EQUIPDES.md`(5475B) 与 `docs/tech_notes/VOICE_ASR_PLAN.md`(24977B),均与 HEAD blob **逐字节等价**。
   - **双目归一**:代码权威副本 = `rk3588-edge-ai/stereo3d/`,补入 `evidence/`(合成真值 161KB + 标定自测 log + 标定 yml) 与 6 张证据图 + `deploy/ab_test.sh`;独立目录降级进 `_workbench/stereo3d-rk3588-archive/`,只留 `corners_check/`(19MB) 与 `_selftest/pairs/`(20.9MB) 等重资产。
-  - **6 个 commit 入库**(b56a324 / 2d87f1d / 53d087f / 3b94cc6 / d030873 / b3660e7),工作树干净;仓库 **ahead 7**(仍缺 GitHub 凭据,待用户 push)。
+  - **6 个 commit 入库**(b56a324 / 2d87f1d / 53d087f / 3b94cc6 / d030873 / b3660e7),工作树干净;（当时 ahead 7，**2026-11-20 已全部推送**）
   - 方法沉淀:一次性搬迁用脚本 + 机器验收(链接检查、旧路径 grep、`git check-ignore`、逐字节 diff),比人工核对可靠;**迁目录后必须同时改引用与 .gitignore**,否则会出现「文档 404」与「个人简历被提交」两类隐性事故。
 - ✅ **学习线 M1 IPC 实测(2026-10-29)**:8 机制 × 3 载荷,`lab/ipc/`。`shm_spin 0.583us` vs `shm_sem 8.17us`(**结构相同,差值纯是系统调用成本**);720p 整帧下**所有机制塌到同一水平**(≈6.5GB/s)→ **换机制省不了大帧带宽,只能减少拷贝**。坑:对照组设计错误 → **数据自相矛盾就说明设计错了**。
 - ✅ **学习线 M2 语音链路实测(2026-10-29)**:ASR sherpa-onnx **static**(shared 需 GLIBCXX 3.4.29,板上只 3.4.28)+ Paraformer int8,RTF **0.023(快约 40×)**;TTS **4 线程最优 0.564**;常驻 `tts_daemon.cpp` 摊掉 **3.70s 加载**(**5.5s→1.8s**)。坑:ES8388 **不支持 16k、只收双声道、plughw 失效**。详见 `BENCHMARKS.md` **2.11**。
@@ -357,6 +359,78 @@ D:\a研究生\项目\rk3588项目\
     **观察该变而不变的量**(`dx` 恒为 0.103 本身就说明回路断了)。
   - 数据:`docs/BENCHMARKS.md` **2.13**(含 6 条局限:未标定 FOV、置信度偏低、跑在 PC 上、单舵机等)。
 - 🚧 **NPUD 推理服务化 Phase 0 完成(2026-10-29)**:计划 `docs/tech_notes/NPUD_SERVICE_PLAN.md`。**推翻原立项前提**——`run_agent.sh` 称「gateway 常驻时起 rkllm 必失败」,三轮复现证明**三者共存正常**,失败只在**第 2 个 rkllm**。**方法论**:脚本注释是故障后的推断不是事实,**过度归因**是常见事故形态。**下一步 Phase 1**。
+- ✅ **`cap >> bgr` 断帧即 Aborted 修复(2026-11-11)**,详见 TROUBLESHOOTING **第 53 条**。
+  - **现象**:`run_gimbal_tracking.sh` 纯预览跑 ~2s 后 `terminate called after throwing 'cv::Exception'`:
+    `OpenCV(4.5.1) loadsave.cpp:768: (-215) !buf.empty() in function 'imdecode_'` → `Aborted`。
+  - **根因(源码级已证)**:抛异常的不是业务代码,是 **OpenCV 的 V4L2 后端**。
+    `cap_v4l.cpp:1584`(tag 4.5.1)MJPEG 分支
+    `cv::imdecode(Mat(1, bytesused, CV_8U, start), ...)` **不判 `bytesused==0`、
+    全文搜不到 `V4L2_BUF_FLAG_ERROR`、也不看 imdecode 返回值** → 零长度载荷时
+    Mat 为空 → `CV_Assert(!buf.empty())` 抛异常(`loadsave.cpp:768`,报错行号完全吻合)。
+    `VideoCapture::read()`(`cap.cpp:336`)本身无 try/catch → 穿到业务栈 → `std::terminate`。
+  - **最关键认知**:**`if (bgr.empty()) continue;` 挡不住**——异常在 `cap >> bgr`
+    这条**赋值语句内部**就抛了,赋值没完成,判空那行永远执行不到。
+  - **排除项(别再查错方向)**:截断的 JPEG **抛不出这个断言**。
+    `Mat(1,N,CV_8U,ptr)` 的 `total()==N`,N>0 时 `!buf.empty()` 必通过,
+    后面 findDecoder 失败只是返回 false 出不了图。**能抛它的只有 N==0。**
+  - **修了 4 处同构代码**(不只崩的那一处):`esp32_gimbal/host/w4_edgevision_gimbal_preview.cpp`
+    (崩的)、**`lab/vision/edgevision_gateway.cpp`(systemd 7×24 常驻的 9000 网关,没崩过纯属运气)**、
+    `lab/vision/edgevision_preview_real.cpp`、`deploy/cpp/src/edgevision_dashboard_main.cpp`(`--cam` 一开就是同一颗雷)。
+    统一 `cam_read()`:try/catch + 计数 + **先 `dst.release()`**(read 失败时不改 Mat,
+    不清空会让上一帧冒充新帧)+ 连续 8 帧失败才重开设备。
+  - **顺带得到的反直觉结论**:`cap >>` 抛过一次异常后**对象仍可继续用**。
+    `retrieveFrame()` 抛异常时漏掉 `tryIoctl(VIDIOC_QBUF)`,但下次 `grabFrame()` 开头
+    会把漏还的 buffer 补还队列 → 单次异常自愈,不必重开设备,只有**连续**多帧才需要。
+  - **别指望升 OpenCV**:4.6.0 同一行未改(`cap_v4l.cpp:1593`),`4.x` 现在还是这一行
+    (`cap_v4l.cpp:1458`),依旧无零长度/FLAG_ERROR 检查。上游修的是姊妹症状:
+    #30666(closed,PR #30672 进 5.2)修「解码失败返回旧帧」; #30683(open)是
+    「bytesused 过短 + 缺 FLAG_ERROR 检查」,还没 PR。
+  - ⚠️ **已知盲区(别当成"彻底修好")**:本次修的是**会崩**那条路径(零长度载荷)。
+    同源的**静默重复帧**——载荷非零但解不出来时 `imdecode` 返回空 Mat 却不抛,
+    `retrieveFrame()` 仍返回 true 并交出上一帧——**兜不住**,要等 #30666 进 5.2。
+    表现是画面卡一下,不崩。
+  - **验收**:离线 harness(stub `VideoCapture` 编程注入坏帧)5 条断言全过;
+    4 个源文件 `g++ -fsyntax-only -std=c++17 -Wall -Wextra` 零 error、无新增告警
+    (WSL + 最小 OpenCV stub;真机编译仍需板端做)。
+  - ⚠️ **板上二进制尚未重编**,现场仍是旧版。上线命令见 TROUBLESHOOTING 第 53 条
+    (★ 那里记着一个坑:两个同名 `build_preview.sh` 编的不是同一个程序,
+    云台那个必须用绝对路径 `/root/esp32_gimbal/build_preview.sh`)。
+  - **方法论**:① 报错里的符号先确认**是谁的**(看 `what()` 的库名 + `modules/xxx/src` 路径);
+    ② 「我明明判空了」最危险,可能抛的 API 顺序必须是 try → 判空;
+    ③ 同一模式要**全仓搜同类**,不能只修崩的那处;④ 吞异常必须**计数 + 外显**,
+    否则"能跑"掩盖"在丢帧"(AGENTS.md 第①条)。
+  - ✅ **2026-11-20 这个「板上二进制尚未重编」已补上**（见下一条写在一起）。
+
+- ✅ **2026-11-20/21 交接收口：安全止血 + 9000 网关复原 + 解开「假推理」构建缺陷**
+  - **背景**:交接时实测板子**在线**但 `edgevision` **inactive**、8080/8088/8090/9000 **全部无监听**
+    （只有 `voice-gateway` + `tts-daemon` 在跑）—— 即**主链路当时是停的**，
+    而 `CURRENT_STATUS.md` 还写着「系统正常运行」。
+  - **① 安全止血（P0）**：公开仓库 `origin/main` 上 4 个文件的板子 IP 与 root 口令**仍是明文**
+    （脱敏提交 ahead 8 一个都没推），而板子 root 口令**自 2023-08-08 起从未更换**，即泄漏的那份**当时仍有效**。
+    已做两件事：**改 root 口令**（`/etc/shadow` 19577→20777，新口令 paramiko 独立登录验证通过、旧口令失效）
+    + **`git push`**（`960fb5f..dbe6b50`，回读远端 4 文件命中 **0**）。历史未重写（26 提交仍含明文），
+    **安全性依赖「口令已换」而非「历史已清」**。
+  - **② 9000 网关复原 + 抓到真缺陷（最重要的一件）**：把 11-11 的 `cam_read()` 加固补编到板上
+    （板上源码停在 10-24，`grep -c cam_read` = 0；先 diff 确认仓库版**只有加固、无其他改动**才覆盖）。
+    按仓库 `lab/build/build_w4_gateway.sh` 的 `g++` 命令编译 → **零告警、启动成功、帧号一路涨**，
+    但日志有 `[!] x86 Stub Mode (no NPU)`、NPU 耗时 **0 ms**、恒「检出 0 目标」——
+    **编出来的是 x86 桩，NPU 从未被调用**。根因：`rknn_engine_dfl_free.cpp` 的真 RKNN 调用全在
+    `#ifdef ENABLE_RKNN` 内，而手写 `g++` 命令**漏抄了 CMakeLists 里的 `-DENABLE_RKNN`**
+    （顺带还漏链引擎源文件）。已修脚本 + **编译后自动断言**（`strings | grep "x86 Stub Mode"` 命中即 `exit 1`）。
+    详见 **TROUBLESHOOTING 第 58 条**（已进速查清单）。
+    **修复后实测**：`strings` 桩标记 **1→0**、`cam_read` 符号 **0→1**、单帧 NPU **0→16.7~22.6 ms**、
+    检出 **0→1 目标**、服务 `active` / `NRestarts=0` / 9000 LISTEN。
+  - **③ `edgevision.service` 板端对齐（OPEN_ISSUES #15 关闭）**：回读发现**板子比仓库还旧**
+    （`ExecStart=.../dev/video81` 写死 + `Restart=always` + `cam2.conf` drop-in 覆盖摄像头 =
+    「同一件事存两处」）。**决策：以仓库新版为准装机** —— `/etc/default/edgevision` 的 `$GATEWAY_CAM`
+    单一真源、`Restart=on-failure` + `StartLimit`，并把 `StartLimit*` 从 `[Service]` 挪到 `[Unit]`
+    （systemd 247 的正确归属段）。实测 `active`、`NRestarts=0`、日志 `正在打开摄像头: /dev/video83`
+    （证明 `$GATEWAY_CAM` 展开正确）、**journal 零 warning**。旧 unit 备份在 `/root/edgevision.service.bak_20261120`。
+  - **④ 已知副作用**：`edgevision` 与 `voice-gateway` 有 `Conflicts=`（IOMMU 4 GiB 硬约束），
+    起网关会自动停语音网关。要用语音先 `systemctl start voice-gateway`。
+  - **⑤ 文档同步**：根 `AGENTS.md` 修掉 24 处旧目录名 `edgevision-rk3588` → `rk3588-edge-ai`
+    （正本一度比镜像还旧）、补 11-19 安全更正；镜像 `docs/workspace/AGENTS.md` 用脚本重新生成
+    （IP 7 处 + 口令 4 处脱敏，回读 `leak_check: CLEAN`、`has_bom: False`）。
 
 ## 4. 目标与下一步(用户想干的事)
 1. **校招项目(核心)** —— 锁定方向 **【端侧 AI 部署 / 边缘计算工程师】（第一主力冲刺）+ 【嵌入式 Linux / 机器人系统】（高确定性保底）**。核心突破点：NPU 3核异步调度 + INT8量化掉点控制 + RGA/DMA-BUF 零拷贝 + 真实吞吐/延迟指标。
@@ -371,7 +445,7 @@ D:\a研究生\项目\rk3588项目\
 ## 5. 关键路径 / 命令
 ```bash
 # 电脑侧
-ssh root@<board-ip>                    # 已配免密(密钥 ~/.ssh/id_ed25519_rk3588),别名 ssh rk3588
+ssh root@<board-ip>                 # 已配免密(密钥 ~/.ssh/id_ed25519_rk3588),别名 ssh rk3588;备用密码 <board-password>
 # 板子侧
 cd /root/edgevision && ./deploy/cpp/build_native/edgevision_pro_rknn   # 跑 NPU
 cd /root/lab                          # C++ 练习

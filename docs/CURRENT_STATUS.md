@@ -5,7 +5,57 @@
 ## 一句话
 RK3588 EVM3588-B 边缘AI校招项目 + Linux 应用层学习。
 
-> 最后一次更新:**2026-10-30 晚 · 语音链路收尾**(软唤醒上线 / Agent 首轮预热 **28s→1s** / TTS 常驻实测 **5s→1s**)——详见下方 M2 小节。同日更早一次是语音链路实测结果归位(M2 小节 + `BENCHMARKS.md` 2.11 节);此前是 2026-10-28 的 Agent「报警阈值可发现性」缺陷修复;再往前是 2026-10-26 的 `rkllm_init failed`(NPU IOMMU 4 GiB 地址空间耗尽),见下方「关键运行约束」
+> 最后一次更新:**2026-11-21 凌晨 · 安全止血 + 主链路复原**（详见下方「11-20/21 收尾」一节）：
+> ①板子 root 口令已换（历史里泄露的那份失效）②8 个脱敏提交终于 push 上 `origin/main`
+> ③11-11 的断帧加固真正编进了板上二进制 ④顺手抓到一个**编出 x86 桩假推理**的构建缺陷（TROUBLESHOOTING 第 58 条）
+> ⑤`edgevision.service` 板端回读对齐，OPEN_ISSUES #15 关闭。
+>
+> 此前最后一次更新:**2026-10-30 晚 · 语音链路收尾**(软唤醒上线 / Agent 首轮预热 **28s→1s** / TTS 常驻实测 **5s→1s**)——详见下方 M2 小节。同日更早一次是语音链路实测结果归位(M2 小节 + `BENCHMARKS.md` 2.11 节);此前是 2026-10-28 的 Agent「报警阈值可发现性」缺陷修复;再往前是 2026-10-26 的 `rkllm_init failed`(NPU IOMMU 4 GiB 地址空间耗尽),见下方「关键运行约束」
+
+## 2026-11-20/21 收尾：安全止血 + 主链路复原（板端实测）
+
+> 起因：交接时发现三项「文档写着已完成、实际没落地」的状态，板子在手一次性收掉。
+
+### ① 口令与仓库（P0，安全问题）
+
+| 项 | 之前 | 现在 | 验证方式 |
+| :--- | :--- | :--- | :--- |
+| 板子 root 口令 | **2023-08-08 起从未改过**，而公开仓库历史里就是这一份 | 已更换 | `/etc/shadow` 第 3 字段 `19577 → 20777`；新口令用 paramiko 独立登录成功，旧口令失效 |
+| 脱敏提交 | **ahead 8，一个都没推**，`origin/main` 上 4 个文件的 IP 与口令仍是明文 | 已推送 `960fb5f..dbe6b50` | 回读 `origin/main` 那 4 个文件，按 `scripts/check_secrets.sh` 的 8 条规则复扫，命中数均为 **0** |
+
+> ⚠️ **历史未重写**（26 个提交仍含明文），安全性依赖「口令已换」而非「历史已清」。
+> 私网 IP 公网不可路由，旧口令失效即无利用价值。若仓库要长期挂出去，再考虑 `git filter-branch`。
+
+### ② 9000 网关复原（主链路此前是停的）
+
+交接时实测：`edgevision` **inactive**，8080/8088/8090/9000 **全部无监听**，只有 `voice-gateway` + `tts-daemon` 在跑。
+
+- **补编 11-11 的断帧加固**：板上源码还停在 **10-24**（`grep -c cam_read` = 0），仓库版是 11-19 加固版（4 处）。两者 diff 确认**只有加固、无其他改动**后才覆盖。
+- ⚠️ **过程中抓到真缺陷（最重要的一件）**：按仓库 `build_w4_gateway.sh` 的 `g++` 命令编译，**编译零告警、启动成功、帧号一路涨**，但日志里有 `[!] x86 Stub Mode (no NPU)`、NPU 耗时 **0 ms**、恒「检出 0 目标」—— **编出来的是 x86 桩，NPU 从未被调用**。
+  根因：`rknn_engine_dfl_free.cpp` 的真 RKNN 调用全在 `#ifdef ENABLE_RKNN` 内，而 build 脚本漏抄了 CMakeLists 里的 `-DENABLE_RKNN`（顺带还漏链引擎源文件）。
+  已修脚本并加**编译后自动断言**（`strings | grep "x86 Stub Mode"` 命中就 `exit 1`）。详见 **TROUBLESHOOTING 第 58 条**。
+
+**修复后实测**（`systemctl start edgevision`，2026-11-21 00:01）：
+
+| 判据 | 桩版（错） | 现在（对） |
+| :--- | :--- | :--- |
+| `strings \| grep -c "x86 Stub Mode"` | 1 | **0** |
+| `nm -C \| grep -c cam_read` | 0 | **1** |
+| 单帧 NPU | 0 ~ 0.000292 ms | **16.7 ~ 22.6 ms** |
+| 检出目标 | 恒 0 | **1**（真实画面） |
+| 服务 | — | `active`、`NRestarts=0`、9000 LISTEN |
+
+### ③ `edgevision.service` 板端对齐（OPEN_ISSUES #15 关闭）
+
+回读板端发现**板子比仓库还旧**：`ExecStart=.../dev/video81` 写死 + `Restart=always` + 一个 `cam2.conf` drop-in 覆盖摄像头 —— 正是「同一件事存两处」的形态。
+
+**决策：以仓库新版为准装机**（不是以板端为准）：`/etc/default/edgevision` 的 `$GATEWAY_CAM` 单一真源、`Restart=on-failure` + `StartLimit` 防止坏摄像头刷爆 journal，并把 `StartLimit*` 从 `[Service]` 挪到 `[Unit]`（systemd 247 的正确归属段）。
+
+实测：`active`、`NRestarts=0`、日志 `正在打开摄像头: /dev/video83`（证明 `$GATEWAY_CAM` 展开正确）、**journal 零 warning**。旧 unit 备份在 `/root/edgevision.service.bak_20261120`。
+
+### ④ 顺带的副作用（已知，非 bug）
+
+`edgevision` 与 `voice-gateway` 有 `Conflicts=`（IOMMU 4 GiB 硬约束，见下方章节），所以**这次 start 网关把 `voice-gateway` 停掉了**。要用语音先 `systemctl start voice-gateway`（会自动停网关）。
 
 ## ⚠️ 关键运行约束:NPU IOMMU 只有 4 GiB(和物理内存是两回事)
 
@@ -650,5 +700,10 @@ Aborted
 端到端 18ms / 三核 150+ FPS / 功耗 9.5W / DMA-BUF 零拷贝 / RGA 硬件 CSC /
 RTSP-H.264 硬解 / 4 路 1080P / ByteTrack 进 C++ / 余弦 0.9965 当精度
 
-### ⚠️ 投递前必须解决
-`git push` 卡凭据 —— 本地 SSH key 不被 GitHub 认可、无 PAT。**仓库不推上去,README 就白扫了**(面试官点不开链接)。当前 `main` 已 ahead 多个 commit。
+### ✅ 投递前检查（2026-11-21 已清空阻塞项）
+
+- ~~`git push` 卡凭据~~ —— **已解决**：`960fb5f..dbe6b50` 已推上 `origin/main`，指纹登录可用。
+  验证：`git ls-remote --heads origin` 返回 `dbe6b50`，`git status -sb` 不再 ahead。
+- ~~板子口令在公开仓库历史里仍有效~~ —— **已解决**：root 口令 2026-11-20 已更换。
+- **仍然建议**：投递前再跑一次 `bash scripts/check_repo.sh`（7 项，无需板子，几十秒）。
+  它覆盖凭据泄漏、248B 协议口径、.py/.sh 语法、unit 与别名一致性、文档口径、构建产物误提交。

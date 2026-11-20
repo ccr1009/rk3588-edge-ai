@@ -23,4 +23,11 @@ g++ -O2 -std=c++17 /root/lab/w4_edgevision_preview_real.cpp \
     -lrknnrt -lpthread
 
 echo "[+] 编译成功: /root/lab/w4_edgevision_preview_real"
+
+# 断帧加固（2026-11-11）的验证：cam_read 必须在符号表里，
+# 否则说明编的还是没 try/catch 的旧版，跑一会儿就会 Aborted。
+if ! nm -C /root/lab/w4_edgevision_preview_real | grep -q cam_read; then
+    echo "[-] 警告：二进制里没有 cam_read，断帧保护可能未生效"
+    exit 1
+fi
 ls -lh /root/lab/w4_edgevision_preview_real
