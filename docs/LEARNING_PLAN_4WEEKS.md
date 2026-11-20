@@ -5,6 +5,19 @@
 > 环境:板子已装 g++/make/cmake,`ssh root@<board-ip>`(免密;IP 见本地私密记录),直接在板上编译
 > 铁律:**看一节视频 → 立刻在板子上写代码跑通 → 改坏 → 排错 → 重写**
 
+> ⚠️ **关于本文里的「开机自启」(2026-11-21 说明)**
+>
+> 第 4 周 D25/D26-28/E4 会反复出现「开机自启」—— 那是**要掌握的知识点**
+> （`systemctl enable`、`WantedBy`、`/etc/systemd/system/*.wants/` 软链接、
+> 和 `led-heartbeat` 同套路）。**这个技能必须学会**，本文不改。
+>
+> 但**板子上的实际配置**是另一回事：用户 2026-11-21 明确要求
+> **项目服务不要开机自启**，所以 `edgevision` / `voice-gateway` / `tts-daemon` /
+> `led-heartbeat` 现在全部 `disabled`，按需 `systemctl start` 手动起。
+>
+> 一句话区分：**「会写 enable」是能力，「不 enable」是这台板子的当前策略。**
+> 学的时候照本文练，练完记得 `disable` 回去。
+
 ---
 
 ## 一、学习方法:每个知识点都走这 6 步

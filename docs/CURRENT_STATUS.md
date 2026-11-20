@@ -95,7 +95,13 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
 
 ## 现在能干什么
 - SSH 板子:`ssh root@<board-ip>`(**已配免密**;别名 `ssh rk3588`;有线。IP 与密码见本地私密记录,不入库)
-- **工业级全链路服务**:`systemctl status edgevision`(开机自启、5秒自愈、3核 NPU、真实摄像头、TCP 9000 推流)
+- **工业级全链路服务**:`systemctl start edgevision` 手动启动后,`systemctl status edgevision` 查看
+  (**5 秒崩溃自愈、3 核 NPU、真实摄像头、TCP 9000 推流**)
+  - ⚠️ **2026-11-21 起:所有项目服务均为 `disabled`,不再开机自启**(用户要求)。
+    这里列的是"手动启动后能干什么",不是"板子一上电就在跑"。
+  - 手动启动:`systemctl start edgevision`(网关) / `voice-gateway` / `tts-daemon` / `led-heartbeat`
+  - 恢复开机自启:`systemctl enable edgevision voice-gateway tts-daemon led-heartbeat`
+  - **互斥提醒**:`edgevision` 与 `voice-gateway` 有 `Conflicts=`(IOMMU 4 GiB),起一个会停另一个
 - **网页实时预览(带真实检测框)**:浏览器开 **`http://<board-ip>:8080`**
   - 启动:`cd /root/lab && ./w4_edgevision_preview_real /dev/video81 0.25`
   - 注意它和 9000 网关**抢同一个 `/dev/video81`**,同时跑必须错开
@@ -156,6 +162,7 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
 - **第 4 周(生产服务化与高并发)**:通关
   - D22 守护进程:掌握 `daemon(0,0)` 摆脱控制终端与会话迁移
   - D25 自愈服务:掌握 `/etc/systemd/system/edgevision.service`，实现插电自启与 5 秒崩溃自愈
+    （**"插电自启"是当时做过的能力，2026-11-21 起已按用户要求 `disable`，改用 `systemctl start` 手动启动**）
   - D23 信号机制:掌握 `sigaction` 捕获 `SIGINT/SIGTERM` 优雅释放硬件显存，屏蔽 `SIGPIPE` 拔网线不死
   - D24 高并发网络:掌握 `epoll` ET(边缘触发)单线程反应堆，搞透红黑树、就绪链表与非阻塞 EAGAIN
 
@@ -226,6 +233,9 @@ bash /root/run_agent.sh --no-restore       # 用完不自动恢复网关
   唤醒 + 剥离唤醒词 → 快速通道 → 回「板子温度 47.153 度，正常」。
   ③**全链路服务化**：`voice-gateway.service` + 新建 `tts-daemon.service`，均 enabled、开机自启，
   不再依赖 SSH 会话。耳机开关与音量写进 `ExecStartPre`（否则重启后耳机无声）。
+  - ⚠️ **「开机自启」这句在 2026-11-21 已过期**：用户要求板子不要开机自启，
+    4 个服务的 `enable` 软链接已全部删除（实测 00:18:36 重启后 0 个被自动拉起）。
+    **历史事实不改**（当时确实是 enabled），但**当前状态**是全部 `disabled`、需手动 `systemctl start`。
   ④**三把测试工具**：`bench_voice.sh`（语音命中率，实测 10/10）、`bench_params.sh`（参数扫描）、
   `test_e2e.sh`（端到端自测）。
   ⑤**参数扫描结论（负面但有用）**：`-O2 / -O3` × `ctx 8192 / 4096` 四组，decode **恒 7 tok/s**——
@@ -460,7 +470,9 @@ alias = `dashboard_cam`，与 mp4 模式的 `dashboard` 区分。
 3. ~~多步演示闭环(巡检→研判→执行→汇报)~~ ✅ 已完成(两幕 PASS,三次复跑)
 4. ~~ASR 板端实测(按 VOICE_ASR_PLAN 评估协议)~~ ✅ 已完成(2026-10-29:ASR RTF 0.023~0.025 / TTS 4 线程 RTF 0.564 / 常驻服务 5.5s→1.8s,见上方 M2 小节与 `BENCHMARKS.md` 2.11)
 5. NPU 竞争"仅LLM/仅YOLO"对照场景补测(当前只有混合负载采样)
-6. 把两幕演示固化成 systemd 服务(开机自启守护 + 事件触发 Agent) —— 未开始
+6. 把两幕演示固化成 systemd 服务(事件触发 Agent) —— 未开始
+   - ⚠️ **注意前提已变**:2026-11-21 用户要求**不要开机自启**,所以即使将来做这条,
+     也只做「事件触发拉起」,**不加开机自启**;`WantedBy` 留在 unit 里但不 `enable`。
 
 ---
 
@@ -579,6 +591,8 @@ cat /root/patrol/patrol_state.json     # 运行态一眼可见
 # 验收演示要低阈值: 改 /etc/default/edgevision-patrol 的 PATROL_ARGS 后 restart
 ```
 注意:单元已安装但**未 enable**(`systemctl is-enabled` = disabled),开机自启需手动 `systemctl enable`。
+**这与 2026-11-21 的全局策略一致**:板上所有项目服务(`edgevision` / `voice-gateway` / `tts-daemon` /
+`led-heartbeat` / `edgevision-patrol` / 各 dashboard、preview)**一律不 enable**,按需手动 `start`。
 
 **同日第二轮:LED 状态查询的采样假象**。问「查看当前警告灯状态」,Agent 答「亮度 0(关闭)」+「正常呼吸闪烁」自相矛盾。
 板上实测 `trigger=[heartbeat]` 占空比 **22%**(40 次采样亮 9 次)→ **单点读到 0 的概率约 78%**,灯在呼吸,读到的是灭相。
